@@ -1,4 +1,5 @@
 #import "FontExtension.h"
+#import <CoreText/CoreText.h>
 #import <React/RCTLog.h>
 
 @implementation UIFont (FontExtension)
@@ -29,20 +30,6 @@
          UIFontDescriptorTraitItalic;
 }
 
-// Slant used when a font family ships no italic face and the italic trait
-// cannot be resolved, matching the ~15° oblique other platforms synthesize.
-static const CGFloat kEnrichedSyntheticObliqueDegrees = 15.0;
-
-static UIFont *EnrichedSyntheticObliqueFont(UIFont *font) {
-  CGAffineTransform matrix = CGAffineTransformMake(
-      1, 0, tan(kEnrichedSyntheticObliqueDegrees * M_PI / 180.0), 1, 0, 0);
-  UIFontDescriptor *obliqueDescriptor =
-      [UIFontDescriptor fontDescriptorWithName:font.fontName matrix:matrix];
-  UIFont *obliqueFont = [UIFont fontWithDescriptor:obliqueDescriptor
-                                              size:font.pointSize];
-  return obliqueFont != nullptr ? obliqueFont : font;
-}
-
 - (UIFont *)setItalic {
   if ([self isItalic]) {
     return self;
@@ -52,14 +39,10 @@ static UIFont *EnrichedSyntheticObliqueFont(UIFont *font) {
   UIFontDescriptor *fontDescriptor =
       [self.fontDescriptor fontDescriptorWithSymbolicTraits:newTraits];
   if (fontDescriptor != nullptr) {
-    UIFont *italicFont = [UIFont fontWithDescriptor:fontDescriptor size:0];
-    if (italicFont != nullptr && [italicFont isItalic]) {
-      return italicFont;
-    }
+    return [UIFont fontWithDescriptor:fontDescriptor size:0];
+  } else {
+    return self;
   }
-  // Custom families such as Pretendard have no italic face, so the trait never
-  // resolves. Synthesize an oblique instead of silently rendering upright.
-  return EnrichedSyntheticObliqueFont(self);
 }
 
 - (UIFont *)withFontTraits:(UIFont *)from {
@@ -83,6 +66,12 @@ static UIFont *EnrichedSyntheticObliqueFont(UIFont *font) {
         @"[EnrichedTextInput]: Couldn't apply heading style to the font.");
     return self;
   }
+}
+
+- (BOOL)coversCharacters:(const unichar *)chars count:(CFIndex)count {
+  CGGlyph glyphs[2] = {0, 0};
+  return CTFontGetGlyphsForCharacters((__bridge CTFontRef)self, chars, glyphs,
+                                      count);
 }
 
 @end
