@@ -124,6 +124,12 @@ export interface OnChangeStateEvent {
     isBlocking: boolean;
   };
   alignment: string;
+  customStyle: {
+    foregroundColor: string;
+    backgroundColor: string;
+    fontSize: CodegenTypes.Float;
+    fontFamily: string;
+  };
 }
 
 export interface OnLinkDetected {
@@ -280,6 +286,12 @@ export interface OnContextMenuItemPressEvent {
       isBlocking: boolean;
     };
     alignment: string;
+    customStyle: {
+      foregroundColor: string;
+      backgroundColor: string;
+      fontSize: CodegenTypes.Float;
+      fontFamily: string;
+    };
   };
 }
 
@@ -484,6 +496,10 @@ interface NativeCommands {
   ) => void;
   changeIndent: (viewRef: React.ElementRef<ComponentType>, delta: Int32) => void;
   toggleBullet: (viewRef: React.ElementRef<ComponentType>) => void;
+  setStyle: (
+    viewRef: React.ElementRef<ComponentType>,
+    styleJSON: string
+  ) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
@@ -520,6 +536,7 @@ export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
     'setTextAlignment',
     'changeIndent',
     'toggleBullet',
+    'setStyle',
   ],
 });
 

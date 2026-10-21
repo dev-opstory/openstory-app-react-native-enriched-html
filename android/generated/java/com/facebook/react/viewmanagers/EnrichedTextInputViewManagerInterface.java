@@ -71,4 +71,7 @@ public interface EnrichedTextInputViewManagerInterface<T extends View> extends V
   void addMention(T view, String indicator, String text, String payload);
   void requestHTML(T view, int requestId);
   void setTextAlignment(T view, String alignment);
+  void changeIndent(T view, int delta);
+  void toggleBullet(T view);
+  void setStyle(T view, String styleJSON);
 }

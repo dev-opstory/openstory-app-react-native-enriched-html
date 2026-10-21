@@ -147,6 +147,13 @@ class EnrichedTextInputViewEventEmitter : public ViewEventEmitter {
     bool isBlocking;
     };
 
+  struct OnChangeStateCustomStyle {
+      std::string foregroundColor;
+    std::string backgroundColor;
+    Float fontSize;
+    std::string fontFamily;
+    };
+
   struct OnChangeState {
       OnChangeStateBold bold;
     OnChangeStateItalic italic;
@@ -168,6 +175,7 @@ class EnrichedTextInputViewEventEmitter : public ViewEventEmitter {
     OnChangeStateMention mention;
     OnChangeStateCheckboxList checkboxList;
     std::string alignment;
+    OnChangeStateCustomStyle customStyle;
     };
 
   struct OnLinkDetected {
@@ -328,6 +336,13 @@ class EnrichedTextInputViewEventEmitter : public ViewEventEmitter {
     bool isBlocking;
     };
 
+  struct OnContextMenuItemPressStyleStateCustomStyle {
+      std::string foregroundColor;
+    std::string backgroundColor;
+    Float fontSize;
+    std::string fontFamily;
+    };
+
   struct OnContextMenuItemPressStyleState {
       OnContextMenuItemPressStyleStateBold bold;
     OnContextMenuItemPressStyleStateItalic italic;
@@ -349,6 +364,7 @@ class EnrichedTextInputViewEventEmitter : public ViewEventEmitter {
     OnContextMenuItemPressStyleStateMention mention;
     OnContextMenuItemPressStyleStateCheckboxList checkboxList;
     std::string alignment;
+    OnContextMenuItemPressStyleStateCustomStyle customStyle;
     };
 
   struct OnContextMenuItemPress {

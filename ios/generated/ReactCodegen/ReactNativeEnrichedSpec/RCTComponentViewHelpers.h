@@ -41,6 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)addMention:(NSString *)indicator text:(NSString *)text payload:(NSString *)payload;
 - (void)requestHTML:(NSInteger)requestId;
 - (void)setTextAlignment:(NSString *)alignment;
+- (void)changeIndent:(NSInteger)delta;
+- (void)toggleBullet;
+- (void)setStyle:(NSString *)styleJSON;
 @end
 
 RCT_EXTERN inline void RCTEnrichedTextInputViewHandleCommand(
@@ -555,6 +558,60 @@ if ([commandName isEqualToString:@"setTextAlignment"]) {
   NSString * alignment = (NSString *)arg0;
 
   [componentView setTextAlignment:alignment];
+  return;
+}
+
+if ([commandName isEqualToString:@"changeIndent"]) {
+#if RCT_DEBUG
+  if ([args count] != 1) {
+    RCTLogError(@"%@ command %@ received %d arguments, expected %d.", @"EnrichedTextInputView", commandName, (int)[args count], 1);
+    return;
+  }
+#endif
+
+  NSObject *arg0 = args[0];
+#if RCT_DEBUG
+  if (!RCTValidateTypeOfViewCommandArgument(arg0, [NSNumber class], @"number", @"EnrichedTextInputView", commandName, @"1st")) {
+    return;
+  }
+#endif
+  NSInteger delta = [(NSNumber *)arg0 intValue];
+
+  [componentView changeIndent:delta];
+  return;
+}
+
+if ([commandName isEqualToString:@"toggleBullet"]) {
+#if RCT_DEBUG
+  if ([args count] != 0) {
+    RCTLogError(@"%@ command %@ received %d arguments, expected %d.", @"EnrichedTextInputView", commandName, (int)[args count], 0);
+    return;
+  }
+#endif
+
+  
+
+  [componentView toggleBullet];
+  return;
+}
+
+if ([commandName isEqualToString:@"setStyle"]) {
+#if RCT_DEBUG
+  if ([args count] != 1) {
+    RCTLogError(@"%@ command %@ received %d arguments, expected %d.", @"EnrichedTextInputView", commandName, (int)[args count], 1);
+    return;
+  }
+#endif
+
+  NSObject *arg0 = args[0];
+#if RCT_DEBUG
+  if (!RCTValidateTypeOfViewCommandArgument(arg0, [NSString class], @"string", @"EnrichedTextInputView", commandName, @"1st")) {
+    return;
+  }
+#endif
+  NSString * styleJSON = (NSString *)arg0;
+
+  [componentView setStyle:styleJSON];
   return;
 }
 

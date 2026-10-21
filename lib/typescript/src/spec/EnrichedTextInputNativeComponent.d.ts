@@ -111,6 +111,12 @@ export interface OnChangeStateEvent {
         isBlocking: boolean;
     };
     alignment: string;
+    customStyle: {
+        foregroundColor: string;
+        backgroundColor: string;
+        fontSize: Float;
+        fontFamily: string;
+    };
 }
 export interface OnLinkDetected {
     text: string;
@@ -256,6 +262,12 @@ export interface OnContextMenuItemPressEvent {
             isBlocking: boolean;
         };
         alignment: string;
+        customStyle: {
+            foregroundColor: string;
+            backgroundColor: string;
+            fontSize: Float;
+            fontFamily: string;
+        };
     };
 }
 interface TargetedEvent {
@@ -398,6 +410,9 @@ interface NativeCommands {
     addMention: (viewRef: React.ElementRef<ComponentType>, indicator: string, text: string, payload: string) => void;
     requestHTML: (viewRef: React.ElementRef<ComponentType>, requestId: Int32) => void;
     setTextAlignment: (viewRef: React.ElementRef<ComponentType>, alignment: string) => void;
+    changeIndent: (viewRef: React.ElementRef<ComponentType>, delta: Int32) => void;
+    toggleBullet: (viewRef: React.ElementRef<ComponentType>) => void;
+    setStyle: (viewRef: React.ElementRef<ComponentType>, styleJSON: string) => void;
 }
 export declare const Commands: NativeCommands;
 declare const _default: HostComponent<NativeProps>;

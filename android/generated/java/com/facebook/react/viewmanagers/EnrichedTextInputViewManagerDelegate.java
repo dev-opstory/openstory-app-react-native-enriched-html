@@ -199,6 +199,15 @@ public class EnrichedTextInputViewManagerDelegate<T extends View, U extends Base
       case "setTextAlignment":
         mViewManager.setTextAlignment(view, args.getString(0));
         break;
+      case "changeIndent":
+        mViewManager.changeIndent(view, args.getInt(0));
+        break;
+      case "toggleBullet":
+        mViewManager.toggleBullet(view);
+        break;
+      case "setStyle":
+        mViewManager.setStyle(view, args.getString(0));
+        break;
     }
   }
 }

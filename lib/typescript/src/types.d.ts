@@ -335,6 +335,12 @@ export interface OnChangeStateEvent {
         isBlocking: boolean;
     };
     alignment: string;
+    customStyle: {
+        foregroundColor: string;
+        backgroundColor: string;
+        fontSize: number;
+        fontFamily: string;
+    };
 }
 export interface OnLinkDetected {
     text: string;
@@ -488,6 +494,21 @@ export interface EnrichedTextInputInstance extends NativeMethods {
      * all already have one. The level is kept either way. iOS only.
      */
     toggleBullet: () => void;
+    /**
+     * Sets the custom style (text and background colors, font size, font family) for
+     * the current text selection.
+     *
+     * @param customStyle - An object specifying the styles to apply.
+     * Provide `foregroundColor` to change the text color, `backgroundColor` to change
+     * the text highlight color, `fontSize` to change the font size, and `fontFamily`
+     * to change the font family. Passing `null` for a property will remove that specific style.
+     */
+    setStyle: (customStyle: {
+        foregroundColor?: ColorValue | null;
+        backgroundColor?: ColorValue | null;
+        fontSize?: number | null;
+        fontFamily?: string | null;
+    }) => void;
 }
 export interface ContextMenuItem {
     text: string;

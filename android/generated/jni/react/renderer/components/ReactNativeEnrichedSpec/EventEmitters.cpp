@@ -186,6 +186,14 @@ void EnrichedTextInputViewEventEmitter::onChangeState(OnChangeState event) const
   payload.setProperty(runtime, "checkboxList", checkboxList);
 }
 payload.setProperty(runtime, "alignment", event.alignment);
+{
+  auto customStyle = jsi::Object(runtime);
+  customStyle.setProperty(runtime, "foregroundColor", event.customStyle.foregroundColor);
+  customStyle.setProperty(runtime, "backgroundColor", event.customStyle.backgroundColor);
+  customStyle.setProperty(runtime, "fontSize", event.customStyle.fontSize);
+  customStyle.setProperty(runtime, "fontFamily", event.customStyle.fontFamily);
+  payload.setProperty(runtime, "customStyle", customStyle);
+}
     return payload;
   });
 }
@@ -418,6 +426,14 @@ payload.setProperty(runtime, "selectionEnd", event.selectionEnd);
     styleState.setProperty(runtime, "checkboxList", checkboxList);
   }
   styleState.setProperty(runtime, "alignment", event.styleState.alignment);
+  {
+    auto customStyle = jsi::Object(runtime);
+    customStyle.setProperty(runtime, "foregroundColor", event.styleState.customStyle.foregroundColor);
+    customStyle.setProperty(runtime, "backgroundColor", event.styleState.customStyle.backgroundColor);
+    customStyle.setProperty(runtime, "fontSize", event.styleState.customStyle.fontSize);
+    customStyle.setProperty(runtime, "fontFamily", event.styleState.customStyle.fontFamily);
+    styleState.setProperty(runtime, "customStyle", customStyle);
+  }
   payload.setProperty(runtime, "styleState", styleState);
 }
     return payload;
