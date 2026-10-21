@@ -20,4 +20,11 @@ public:
    * @return      Canonical HTML string, or empty string on failure.
    */
   static std::string normalizeHtml(const std::string &html);
+
+  /**
+   * Normalize pasted HTML into what the OpenStory editor can save: B/I/U/S,
+   * links, one large text size, center alignment, and flat bullet/indent
+   * paragraphs. See the OpenStory profile in GumboNormalizer.c.
+   */
+  static std::string normalizeOpenStoryHtml(const std::string &html);
 };

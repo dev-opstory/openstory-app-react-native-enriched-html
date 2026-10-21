@@ -618,3 +618,159 @@ TEST(GumboParserTest, InterBlockWhitespace) {
   EXPECT_EQ(GumboParser::normalizeHtml("<b>hello</b> <i>world</i>"),
             "<b>hello</b> <i>world</i>");
 }
+
+// ── OpenStory paste profile ─────────────────────────────────────────────────
+
+static std::string os(const std::string &html) {
+  return GumboParser::normalizeOpenStoryHtml(html);
+}
+
+static const std::string L = "<span style=\"font-size: 20px;\">";
+
+TEST(OpenStoryProfile, StripsColorsAndFonts) {
+  EXPECT_EQ(os("<span style=\"color: red; background-color: yellow; "
+               "font-family: Arial\">x</span>"),
+            "x");
+  EXPECT_EQ(os("<span style=\"font-weight: 700; color: red\">x</span>"),
+            "<b>x</b>");
+  EXPECT_EQ(os("<font color=\"red\" face=\"Arial\">x</font>"), "x");
+  // The upstream profile still keeps colors.
+  EXPECT_EQ(GumboParser::normalizeHtml("<span style=\"color: red\">x</span>"),
+            "<span style=\"color: red\">x</span>");
+}
+
+TEST(OpenStoryProfile, LargeFromFontSize) {
+  EXPECT_EQ(os("<span style=\"font-size: 24px\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 19.2px\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 19px\">x</span>"), "x");
+  EXPECT_EQ(os("<span style=\"font-size: 14.4pt\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 11pt\">x</span>"), "x");
+  EXPECT_EQ(os("<span style=\"font-size: 1.5em\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 1.2rem\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 120%\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 110%\">x</span>"), "x");
+  EXPECT_EQ(os("<span style=\"font-size: x-large\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: large\">x</span>"), "x");
+  EXPECT_EQ(os("<span style=\"font-size: larger\">x</span>"), L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 24px !important\">x</span>"),
+            L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font: italic 24px/1.2 Arial\">x</span>"),
+            L + "x</span>");
+  EXPECT_EQ(os("<span style=\"font: 12px Arial\">x</span>"), "x");
+  EXPECT_EQ(os("<font size=\"5\">x</font>"), L + "x</span>");
+  EXPECT_EQ(os("<font size=\"4\">x</font>"), "x");
+  EXPECT_EQ(os("<font size=\"+2\">x</font>"), L + "x</span>");
+  EXPECT_EQ(os("<big>x</big>"), L + "x</span>");
+}
+
+TEST(OpenStoryProfile, NearestFontSizeWins) {
+  EXPECT_EQ(os("<span style=\"font-size: 24px\">a<span style=\"font-size: "
+               "16px\">b</span>c</span>"),
+            L + "a</span>b" + L + "c</span>");
+  EXPECT_EQ(os("<span style=\"font-size: 11pt\">a<span style=\"font-size: "
+               "18pt\">b</span></span>"),
+            "a" + L + "b</span>");
+  // An unreadable size defers to the ancestor.
+  EXPECT_EQ(os("<span style=\"font-size: 24px\"><span style=\"font-size: "
+               "inherit\">b</span></span>"),
+            L + "b</span>");
+  EXPECT_EQ(os("<p style=\"font-size: 2em\"><b>a</b> <i>b</i></p>"),
+            "<p><b>" + L + "a</span></b>" + L + " </span><i>" + L +
+                "b</span></i></p>");
+  // Line-break whitespace between blocks stays layout.
+  EXPECT_EQ(os("<div style=\"font-size: 24px\">\n<p>a</p>\n<p>b</p>\n</div>"),
+            "<p>" + L + "a</span></p><p>" + L + "b</span></p>");
+}
+
+TEST(OpenStoryProfile, OwnLargeTextRoundTrips) {
+  EXPECT_EQ(os("<p>a <span style=\"font-size: 20px;\">big</span></p>"),
+            "<p>a " + L + "big</span></p>");
+}
+
+TEST(OpenStoryProfile, ListsBecomeBulletParagraphs) {
+  EXPECT_EQ(os("<ul><li>a</li><li>b<ul><li>c<ul><li>d<ul><li>e</li></ul></li>"
+               "</ul></li></ul></li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p data-indent=\"1\" data-bullet=\"true\">b</p>"
+            "<p data-indent=\"2\" data-bullet=\"true\">c</p>"
+            "<p data-indent=\"3\" data-bullet=\"true\">d</p>"
+            "<p data-indent=\"3\" data-bullet=\"true\">e</p>");
+  EXPECT_EQ(os("<ol><li>a</li><li>b</li></ol>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p data-indent=\"1\" data-bullet=\"true\">b</p>");
+  EXPECT_EQ(os("<p>before</p><ul><li>a</li></ul><p>after</p>"),
+            "<p>before</p><p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p>after</p>");
+  EXPECT_EQ(os("<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p data-indent=\"1\" data-bullet=\"true\">b</p>");
+  EXPECT_EQ(os("<ul><li></li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\"></p>");
+}
+
+TEST(OpenStoryProfile, ListItemLines) {
+  // Later lines of one item keep the indent but not the bullet.
+  EXPECT_EQ(os("<ul><li>a<br>b</li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p data-indent=\"1\">b</p>");
+  EXPECT_EQ(os("<ul><li><p>a</p><p>b</p></li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+            "<p data-indent=\"1\">b</p>");
+  EXPECT_EQ(os("<ul><li style=\"text-align: center\">a</li></ul>"),
+            "<p style=\"text-align: center\">a</p>");
+  EXPECT_EQ(os("<ul><li style=\"font-weight: bold\">a</li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\"><b>a</b></p>");
+}
+
+TEST(OpenStoryProfile, GoogleDocsLists) {
+  EXPECT_EQ(
+      os("<meta charset=\"utf-8\"><b style=\"font-weight:normal;\" "
+         "id=\"docs-internal-guid-1234567890\"><ul style=\"margin-top:0;\">"
+         "<li dir=\"ltr\" style=\"list-style-type:disc;font-size:11pt;\" "
+         "aria-level=\"1\"><p dir=\"ltr\" role=\"presentation\"><span "
+         "style=\"font-size:11pt;color:#000000;\">a</span></p></li><ul "
+         "style=\"margin-top:0;\"><li dir=\"ltr\" "
+         "style=\"list-style-type:circle;font-size:11pt;\" aria-level=\"2\">"
+         "<p dir=\"ltr\" role=\"presentation\"><span "
+         "style=\"font-size:11pt;\">b</span></p></li></ul></ul></b>"),
+      "<p data-indent=\"1\" data-bullet=\"true\">a</p>"
+      "<p data-indent=\"2\" data-bullet=\"true\">b</p>");
+  EXPECT_EQ(os("<ul><li role=\"checkbox\" aria-checked=\"true\"><img "
+               "src=\"data:...\" />done</li></ul>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">done</p>");
+  EXPECT_EQ(os("<p dir=\"ltr\"><span style=\"font-size:26pt;font-family:"
+               "Arial;color:#000000;\">Title</span></p>"),
+            "<p>" + L + "Title</span></p>");
+}
+
+TEST(OpenStoryProfile, OwnParagraphFormats) {
+  EXPECT_EQ(os("<p data-indent=\"2\" data-bullet=\"true\">x</p>"),
+            "<p data-indent=\"2\" data-bullet=\"true\">x</p>");
+  EXPECT_EQ(os("<p data-indent=\"5\">x</p>"), "<p data-indent=\"3\">x</p>");
+  EXPECT_EQ(os("<p data-bullet=\"true\">x</p>"),
+            "<p data-indent=\"1\" data-bullet=\"true\">x</p>");
+  EXPECT_EQ(os("<p style=\"text-align: center\" data-indent=\"2\" "
+               "data-bullet=\"true\">x</p>"),
+            "<p style=\"text-align: center\">x</p>");
+  EXPECT_EQ(os("<p style=\"text-align: right\">x</p>"), "<p>x</p>");
+  EXPECT_EQ(os("<div style=\"text-align: center\">x</div>"),
+            "<p style=\"text-align: center\">x</p>");
+}
+
+TEST(OpenStoryProfile, UnsupportedBlocksBecomeParagraphs) {
+  EXPECT_EQ(os("<h1>x</h1>"), "<p>" + L + "x</span></p>");
+  EXPECT_EQ(os("<h2>x</h2>"), "<p>" + L + "x</span></p>");
+  EXPECT_EQ(os("<h3>x</h3>"), "<p>x</p>");
+  EXPECT_EQ(os("<h2 style=\"text-align: center\">x</h2>"),
+            "<p style=\"text-align: center\">" + L + "x</span></p>");
+  EXPECT_EQ(os("<h1 style=\"font-size: 16px\">x</h1>"), "<p>x</p>");
+  EXPECT_EQ(os("<blockquote><p>a</p><p>b</p></blockquote>"),
+            "<p>a</p><p>b</p>");
+  EXPECT_EQ(os("<pre>x</pre>"), "<p>x</p>");
+  EXPECT_EQ(os("<p>a <code>b</code></p>"), "<p>a b</p>");
+  EXPECT_EQ(os("<p>a<img src=\"x.png\" />b</p>"), "<p>ab</p>");
+  EXPECT_EQ(os("<p><mention text=\"@a\" indicator=\"@\">@a</mention></p>"),
+            "<p>@a</p>");
+  EXPECT_EQ(os("<p><a href=\"https://openstory.me\">x</a></p>"),
+            "<p><a href=\"https://openstory.me\">x</a></p>");
+}

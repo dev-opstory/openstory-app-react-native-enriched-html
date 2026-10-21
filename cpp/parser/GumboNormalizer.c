@@ -26,8 +26,16 @@
 #endif
 
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/*
+ * OpenStory paste profile, set for the duration of one
+ * normalize_html_openstory() call. Thread-local so a measurement thread and
+ * the UI thread can normalize at the same time.
+ */
+static __thread bool g_openstory = false;
 
 /* ------------------------------------------------------------------ */
 /*  Dynamic string buffer                                              */
@@ -458,6 +466,265 @@ static void emit_alignment(GumboElement *el, const char *tag_name,
   buffer_append_str(out, "\"");
 }
 
+/* ------------------------------------------------------------------ */
+/*  OpenStory profile                                                  */
+/*                                                                     */
+/*  The OpenStory editor saves B/I/U/S, links, large text (one size,   */
+/*  1.25x the 16px body), center alignment, and flat paragraph         */
+/*  indent 1-3 with optional bullets (<p data-indent data-bullet>).    */
+/*  Pasted HTML is reduced to exactly that: colors, fonts, other       */
+/*  sizes and images are dropped, headings, quotes and code keep only  */
+/*  their text, lists become bullet paragraphs. Size and list rules    */
+/*  match the web editor                                               */
+/*  (openstory-web packages/rich-text-editor largeText.ts and          */
+/*  paragraphFormat.ts).                                               */
+/* ------------------------------------------------------------------ */
+
+#define OS_BODY_FONT_PX 16.0
+#define OS_LARGE_RATIO 1.2
+#define OS_MAX_INDENT 3
+#define OS_LARGE_SPAN_OPEN "<span style=\"font-size: 20px;\">"
+
+/**
+ * A CSS font-size value as a ratio of the 16px body, or -1 when it cannot be
+ * read. em, rem and % are read against the body, like the web editor does.
+ */
+static double css_font_size_ratio(const char *val, size_t len) {
+  char buf[48];
+  size_t n = 0;
+  for (size_t i = 0; i < len && n < sizeof(buf) - 1; i++) {
+    buf[n++] = (char)tolower((unsigned char)val[i]);
+  }
+  buf[n] = '\0';
+
+  char *important = strstr(buf, "!important");
+  if (important)
+    *important = '\0';
+  char *s = buf;
+  while (*s && isspace((unsigned char)*s))
+    s++;
+  size_t slen = strlen(s);
+  while (slen > 0 && isspace((unsigned char)s[slen - 1]))
+    s[--slen] = '\0';
+  if (slen == 0)
+    return -1;
+
+  static const struct {
+    const char *name;
+    double px;
+  } keywords[] = {{"xx-small", 9},  {"x-small", 10},  {"small", 13},
+                  {"medium", 16},   {"large", 18},    {"x-large", 24},
+                  {"xx-large", 32}, {"xxx-large", 48}};
+  for (size_t i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
+    if (strcmp(s, keywords[i].name) == 0)
+      return keywords[i].px / OS_BODY_FONT_PX;
+  }
+  if (strcmp(s, "larger") == 0)
+    return OS_LARGE_RATIO;
+  if (strcmp(s, "smaller") == 0)
+    return 1 / OS_LARGE_RATIO;
+
+  /* <digits>[.<digits>]<unit>, no sign or spaces: same shape as web's regex */
+  const char *p = s;
+  double amount = 0;
+  bool has_digit = false;
+  while (isdigit((unsigned char)*p)) {
+    amount = amount * 10 + (*p - '0');
+    has_digit = true;
+    p++;
+  }
+  if (*p == '.') {
+    p++;
+    double scale = 0.1;
+    bool fraction_digit = false;
+    while (isdigit((unsigned char)*p)) {
+      amount += (*p - '0') * scale;
+      scale /= 10;
+      fraction_digit = true;
+      p++;
+    }
+    if (!fraction_digit)
+      return -1;
+    has_digit = true;
+  }
+  if (!has_digit)
+    return -1;
+
+  if (strcmp(p, "px") == 0)
+    return amount / OS_BODY_FONT_PX;
+  if (strcmp(p, "pt") == 0)
+    return amount * 4 / 3 / OS_BODY_FONT_PX;
+  if (strcmp(p, "%") == 0)
+    return amount / 100;
+  if (strcmp(p, "em") == 0 || strcmp(p, "rem") == 0)
+    return amount;
+  return -1;
+}
+
+/** The size inside a `font` shorthand, e.g. `bold 24px/1.5 Arial`. */
+static double css_font_shorthand_ratio(const char *val, size_t len) {
+  size_t i = 0;
+  while (i < len) {
+    while (i < len && isspace((unsigned char)val[i]))
+      i++;
+    size_t start = i;
+    while (i < len && !isspace((unsigned char)val[i]) && val[i] != '/')
+      i++;
+    if (i > start) {
+      double ratio = css_font_size_ratio(val + start, i - start);
+      if (ratio >= 0)
+        return ratio;
+    }
+    /* skip a `/line-height` part */
+    while (i < len && !isspace((unsigned char)val[i]))
+      i++;
+  }
+  return -1;
+}
+
+/** Font size an element sets for its own text, or -1 if it sets none. */
+static double element_font_size_ratio(GumboNode *node) {
+  GumboElement *el = &node->v.element;
+  const char *style = get_attr(el, "style");
+  if (style) {
+    size_t style_len = strlen(style);
+    size_t vlen;
+    const char *val = find_css_value(style, style_len, "font-size", &vlen);
+    if (val) {
+      double ratio = css_font_size_ratio(val, vlen);
+      if (ratio >= 0)
+        return ratio;
+    }
+    val = find_css_value(style, style_len, "font", &vlen);
+    if (val) {
+      double ratio = css_font_shorthand_ratio(val, vlen);
+      if (ratio >= 0)
+        return ratio;
+    }
+  }
+
+  switch (el->tag) {
+  case GUMBO_TAG_FONT: {
+    /* <font size="1".."7">, or relative to the default 3 */
+    static const double font_tag_px[] = {10, 13, 16, 18, 24, 32, 48};
+    const char *size = get_attr(el, "size");
+    if (!size || !size[0])
+      return -1;
+    int level = atoi(size);
+    if (size[0] == '+' || size[0] == '-')
+      level += 3;
+    if (level < 1)
+      level = 1;
+    if (level > 7)
+      level = 7;
+    return font_tag_px[level - 1] / OS_BODY_FONT_PX;
+  }
+  case GUMBO_TAG_BIG:
+    return OS_LARGE_RATIO;
+  case GUMBO_TAG_SMALL:
+    return 1 / OS_LARGE_RATIO;
+  /* user-agent default sizes */
+  case GUMBO_TAG_H1:
+    return 2;
+  case GUMBO_TAG_H2:
+    return 1.5;
+  case GUMBO_TAG_H3:
+    return 1.17;
+  case GUMBO_TAG_H4:
+    return 1;
+  case GUMBO_TAG_H5:
+    return 0.83;
+  case GUMBO_TAG_H6:
+    return 0.67;
+  default:
+    return -1;
+  }
+}
+
+/**
+ * Whether a text node renders as large text: the nearest ancestor that sets a
+ * readable font size decides, so a body-size span inside a large one is body
+ * size again.
+ */
+static bool is_large_text(GumboNode *text) {
+  for (GumboNode *node = text->parent; node && is_element(node);
+       node = node->parent) {
+    GumboTag tag = node->v.element.tag;
+    if (tag == GUMBO_TAG_BODY || tag == GUMBO_TAG_HTML)
+      break;
+    double ratio = element_font_size_ratio(node);
+    if (ratio >= 0)
+      /* slack so boundary values like 14.4pt are not lost to rounding */
+      return ratio >= OS_LARGE_RATIO - 1e-9;
+  }
+  return false;
+}
+
+static bool is_centered(GumboElement *el) {
+  const char *style = el ? get_attr(el, "style") : NULL;
+  if (!style)
+    return false;
+  size_t vlen;
+  const char *val = find_css_value(style, strlen(style), "text-align", &vlen);
+  if (!val)
+    return false;
+  const char *canon = canonical_alignment(val, vlen);
+  return canon && strcmp(canon, "center") == 0;
+}
+
+/**
+ * Paragraph attributes in the app editor's shape. Center drops indent and
+ * bullet, a bullet needs indent >= 1, and indent is capped at 3.
+ */
+static void emit_paragraph_format(buffer_t *out, bool centered, int indent,
+                                  bool bullet) {
+  if (centered) {
+    buffer_append_str(out, " style=\"text-align: center\"");
+    return;
+  }
+  if (bullet && indent < 1)
+    indent = 1;
+  if (indent > OS_MAX_INDENT)
+    indent = OS_MAX_INDENT;
+  if (indent > 0) {
+    char attr[32];
+    snprintf(attr, sizeof(attr), " data-indent=\"%d\"", indent);
+    buffer_append_str(out, attr);
+  }
+  if (bullet)
+    buffer_append_str(out, " data-bullet=\"true\"");
+}
+
+/** A <p> keeps the format another OpenStory editor wrote on it. */
+static void emit_own_paragraph_format(GumboElement *el, buffer_t *out) {
+  const char *indent = get_attr(el, "data-indent");
+  const char *bullet = get_attr(el, "data-bullet");
+  emit_paragraph_format(out, is_centered(el), indent ? atoi(indent) : 0,
+                        bullet && strcmp(bullet, "true") == 0);
+}
+
+/** List nesting depth: Google Docs' aria-level, else the ul/ol ancestors. */
+static int list_depth(GumboNode *item) {
+  const char *aria_level = get_attr(&item->v.element, "aria-level");
+  if (aria_level) {
+    int level = atoi(aria_level);
+    if (level > 0)
+      return level;
+  }
+  int depth = 0;
+  for (GumboNode *node = item->parent; node && is_element(node);
+       node = node->parent) {
+    GumboTag tag = node->v.element.tag;
+    if (tag == GUMBO_TAG_UL || tag == GUMBO_TAG_OL)
+      depth++;
+  }
+  return depth;
+}
+
+static bool is_heading_tag(const char *name) {
+  return name[0] == 'h' && name[1] >= '1' && name[1] <= '6' && name[2] == '\0';
+}
+
 static bool is_checkbox_list(GumboElement *el) {
   const char *val = get_attr(el, "data-type");
   if (val && (strcmp(val, "checkbox") == 0 || strcmp(val, "checkboxList") == 0)) {
@@ -522,6 +789,9 @@ static void emit_attributes(GumboElement *el, const char *tag_name,
       GumboAttribute *attr = (GumboAttribute *)el->attributes.data[i];
       emit_one_attr(out, el, attr->name);
     }
+  } else if (g_openstory) {
+    if (strcmp(tag_name, "p") == 0)
+      emit_own_paragraph_format(el, out);
   } else {
     /* preserve text-align */
     emit_alignment(el, tag_name, out);
@@ -574,7 +844,9 @@ static bool flush_inline_p(buffer_t *ib, buffer_t *out,
   bool emitted = ib->len > 0 && !is_whitespace_only(ib->data, ib->len);
   if (emitted) {
     buffer_append_str(out, "<p");
-    if (align_el)
+    if (align_el && g_openstory)
+      emit_paragraph_format(out, is_centered(align_el), 0, false);
+    else if (align_el)
       emit_alignment(align_el, "p", out);
     buffer_append_str(out, ">");
     buffer_append(out, ib->data, ib->len);
@@ -632,21 +904,38 @@ typedef struct {
   int *nested_count;
   int max_nested;
   bool has_emitted;
+  GumboNode *node;
 } li_ctx_t;
 
 static void flatten_li_node(GumboNode *node, buffer_t *ib, buffer_t *out,
                             li_ctx_t *ctx);
 
-static void flush_li_buffer(buffer_t *ib, buffer_t *out, li_ctx_t *ctx) {
-  if (ib->len == 0)
+/**
+ * Opening tag for one line of a list item. OpenStory has no lists: an item
+ * becomes a bullet paragraph at its nesting depth, and the item's later lines
+ * keep the indent without a bullet, like the web editor's hard breaks.
+ */
+static void emit_li_open(buffer_t *out, li_ctx_t *ctx) {
+  if (g_openstory) {
+    buffer_append_str(out, "<p");
+    emit_paragraph_format(out, is_centered(ctx->el), list_depth(ctx->node),
+                          !ctx->has_emitted);
+    buffer_append_str(out, ">");
     return;
+  }
   buffer_append_str(out, "<li");
   emit_attributes(ctx->el, "li", out);
   buffer_append_str(out, ">");
+}
+
+static void flush_li_buffer(buffer_t *ib, buffer_t *out, li_ctx_t *ctx) {
+  if (ib->len == 0)
+    return;
+  emit_li_open(out, ctx);
   emit_styles_open(out, ctx->styles);
   buffer_append(out, ib->data, ib->len);
   emit_styles_close(out, ctx->styles);
-  buffer_append_str(out, "</li>");
+  buffer_append_str(out, g_openstory ? "</p>" : "</li>");
   buffer_clear(ib);
   ctx->has_emitted = true;
 }
@@ -735,9 +1024,17 @@ static void walk_children(GumboNode *node, buffer_t *out) {
       continue;
     }
 
+    /* Lists unwrap into paragraphs, so their layout whitespace would land
+       between paragraphs as text. */
+    if (g_openstory && parent_is_list && child->type == GUMBO_NODE_WHITESPACE) {
+      i++;
+      continue;
+    }
+
     /* Merge consecutive blockquotes, flattening content into <p>s */
     if (is_blockquote_node(child)) {
-      buffer_append_str(out, "<blockquote>");
+      if (!g_openstory)
+        buffer_append_str(out, "<blockquote>");
       buffer_t bq_ib = buffer_create(64);
       while (i < children->length && is_blockquote_node(children->data[i])) {
         flatten_bq_children(children->data[i], &bq_ib, out);
@@ -745,7 +1042,8 @@ static void walk_children(GumboNode *node, buffer_t *out) {
       }
       flush_inline_p(&bq_ib, out, NULL);
       free(bq_ib.data);
-      buffer_append_str(out, "</blockquote>");
+      if (!g_openstory)
+        buffer_append_str(out, "</blockquote>");
       continue;
     }
 
@@ -787,6 +1085,14 @@ static void walk_children(GumboNode *node, buffer_t *out) {
 /*  walk_node — process a single DOM node                              */
 /* ------------------------------------------------------------------ */
 
+/** A <div> line as a paragraph; OpenStory keeps its center alignment. */
+static void emit_div_p_open(buffer_t *out, GumboElement *div) {
+  buffer_append_str(out, "<p");
+  if (g_openstory)
+    emit_paragraph_format(out, is_centered(div), 0, false);
+  buffer_append_str(out, ">");
+}
+
 static void walk_node(GumboNode *node, buffer_t *out) {
   if (!node)
     return;
@@ -795,6 +1101,14 @@ static void walk_node(GumboNode *node, buffer_t *out) {
   if (is_text(node)) {
     const char *text_raw = node->v.text.text;
     if (text_raw) {
+      /* Whitespace with a line break is layout between tags, not a space
+         inside large text; wrapping it would turn it into content. */
+      bool large = g_openstory &&
+                   (node->type == GUMBO_NODE_TEXT ||
+                    strpbrk(text_raw, "\r\n") == NULL) &&
+                   is_large_text(node);
+      if (large)
+        buffer_append_str(out, OS_LARGE_SPAN_OPEN);
       size_t text_len = strlen(text_raw);
       for (size_t i = 0; i < text_len; i++) {
         char c = text_raw[i];
@@ -813,6 +1127,8 @@ static void walk_node(GumboNode *node, buffer_t *out) {
           break;
         }
       }
+      if (large)
+        buffer_append_str(out, "</span>");
     }
     return;
   }
@@ -847,6 +1163,24 @@ static void walk_node(GumboNode *node, buffer_t *out) {
 
   tag_class_t cls = classify_tag(name_buf);
 
+  if (g_openstory) {
+    /* No inline images; code and mentions keep their text only. */
+    if (strcmp(name_buf, "img") == 0)
+      return;
+    if (strcmp(name_buf, "code") == 0 || strcmp(name_buf, "mention") == 0) {
+      walk_children(node, out);
+      return;
+    }
+    /* Items become bullet paragraphs; see emit_li_open. */
+    if (strcmp(name_buf, "ul") == 0 || strcmp(name_buf, "ol") == 0) {
+      walk_children(node, out);
+      return;
+    }
+    /* Headings are paragraphs; h1/h2 come out large from their size. */
+    if (is_heading_tag(name_buf) || strcmp(name_buf, "blockquote") == 0)
+      out_name = "p";
+  }
+
   /* --- <span>: CSS style → inline tags --- */
   if (strcmp(name_buf, "span") == 0) {
     const char *sval = get_attr(el, "style");
@@ -859,8 +1193,9 @@ static void walk_node(GumboNode *node, buffer_t *out) {
     size_t bg_len = 0;
     const char *bg = find_css_value(sval, slen, "background-color", &bg_len);
 
-    int has_fg = (fg && fg_len > 0);
-    int has_bg = (bg && bg_len > 0);
+    /* OpenStory drops colors; a pasted font size is handled per text node */
+    int has_fg = !g_openstory && (fg && fg_len > 0);
+    int has_bg = !g_openstory && (bg && bg_len > 0);
 
     // emit the wrapper span if colors exist
     if (has_fg || has_bg) {
@@ -910,7 +1245,7 @@ static void walk_node(GumboNode *node, buffer_t *out) {
         GumboNode *dc = div_children->data[di];
         if (is_br_node(dc)) {
           if (pb.len > 0) {
-            buffer_append_str(out, "<p>");
+            emit_div_p_open(out, el);
             emit_styles_open(out, s);
             buffer_append(out, pb.data, pb.len);
             emit_styles_close(out, s);
@@ -924,7 +1259,7 @@ static void walk_node(GumboNode *node, buffer_t *out) {
         walk_node(dc, &pb);
       }
       if (pb.len > 0) {
-        buffer_append_str(out, "<p>");
+        emit_div_p_open(out, el);
         emit_styles_open(out, s);
         buffer_append(out, pb.data, pb.len);
         emit_styles_close(out, s);
@@ -1004,15 +1339,14 @@ static void walk_node(GumboNode *node, buffer_t *out) {
       GumboNode *nested_lists[16];
       int nested_count = 0;
       buffer_t li_ib = buffer_create(64);
-      li_ctx_t ctx = {el, es, nested_lists, &nested_count, 16};
+      li_ctx_t ctx = {el, es, nested_lists, &nested_count, 16, false, node};
       flatten_li_children(node, &li_ib, out, &ctx);
       flush_li_buffer(&li_ib, out, &ctx);
 
       /* if nothing emitted - the <li> is empty, we add it manually */
       if (!ctx.has_emitted) {
-        buffer_append_str(out, "<li");
-        emit_attributes(el, "li", out);
-        buffer_append_str(out, "></li>");
+        emit_li_open(out, &ctx);
+        buffer_append_str(out, g_openstory ? "</p>" : "</li>");
       }
 
       free(li_ib.data);
@@ -1024,13 +1358,15 @@ static void walk_node(GumboNode *node, buffer_t *out) {
     /* <codeblock>: wrap inline content in <p> */
     if (strcmp(out_name, "codeblock") == 0) {
       bool wrap = is_purely_inline(node);
-      buffer_append_str(out, "<codeblock>");
+      if (!g_openstory)
+        buffer_append_str(out, "<codeblock>");
       if (wrap)
         buffer_append_str(out, "<p>");
       walk_children(node, out);
       if (wrap)
         buffer_append_str(out, "</p>");
-      buffer_append_str(out, "</codeblock>");
+      if (!g_openstory)
+        buffer_append_str(out, "</codeblock>");
       break;
     }
 
@@ -1088,6 +1424,13 @@ char *normalize_html(const char *html, size_t len) {
 
   gumbo_destroy_output(&kGumboDefaultOptions, output);
   return buffer_finish(&buf);
+}
+
+char *normalize_html_openstory(const char *html, size_t len) {
+  g_openstory = true;
+  char *result = normalize_html(html, len);
+  g_openstory = false;
+  return result;
 }
 
 void free_normalized_html(char *result) { free(result); }

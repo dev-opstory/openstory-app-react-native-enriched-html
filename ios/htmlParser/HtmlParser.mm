@@ -141,11 +141,12 @@
  * canonical tag subset using the Gumbo-based C++ normalizer.
  *
  * Converts: strong → b, em → i, span style="font-weight:bold" → b,
- * strips unknown tags while preserving text
+ * strips unknown tags while preserving text. Uses the OpenStory profile, so
+ * only formats the OpenStory editor can save survive.
  */
 + (NSString *_Nullable)normalizeExternalHtml:(NSString *_Nonnull)html {
   std::string result =
-      GumboParser::normalizeHtml(std::string([html UTF8String]));
+      GumboParser::normalizeOpenStoryHtml(std::string([html UTF8String]));
   if (result.empty())
     return nil;
   return [NSString stringWithUTF8String:result.c_str()];
@@ -220,9 +221,15 @@
         [htmlWithoutSpaces substringWithRange:NSMakeRange(0, 6)];
     NSString *lastSeven = [htmlWithoutSpaces
         substringWithRange:NSMakeRange(htmlWithoutSpaces.length - 7, 7)];
+    // Our own HTML is a bare <html> wrapper. A full document (head/body)
+    // comes from another app and must go through the normalizer.
+    BOOL isDocument = [htmlWithoutSpaces rangeOfString:@"<head"].length > 0 ||
+                      [htmlWithoutSpaces rangeOfString:@"<body"].length > 0;
+    BOOL normalized = NO;
 
     if ([firstSix isEqualToString:@"<html>"] &&
-        [lastSeven isEqualToString:@"</html>"]) {
+        [lastSeven isEqualToString:@"</html>"] &&
+        !(useHtmlNormalizer && isDocument)) {
       // remove html tags, might be with newlines or without them
       fixedHtml = [htmlWithoutSpaces copy];
       // firstly remove newlined html tags if any:
@@ -239,9 +246,10 @@
       // External HTML (from Google Docs, Word, web pages, etc.)
       // Run through the Gumbo-based normalizer to convert arbitrary HTML
       // into our canonical tag subset.
-      NSString *normalized = [self normalizeExternalHtml:html];
-      if (normalized != nil) {
-        fixedHtml = normalized;
+      NSString *normalizedHtml = [self normalizeExternalHtml:html];
+      if (normalizedHtml != nil) {
+        fixedHtml = normalizedHtml;
+        normalized = YES;
       }
     }
 
@@ -254,9 +262,11 @@
     fixedHtml = [fixedHtml stringByReplacingOccurrencesOfString:@"\n</body>"
                                                      withString:@"</body>"];
     // Then, if there actually are body tags, use the content between them.
+    // Normalized HTML already is that content; the raw body would undo it.
     NSRange openingBodyRange = [htmlWithoutSpaces rangeOfString:@"<body>"];
     NSRange closingBodyRange = [htmlWithoutSpaces rangeOfString:@"</body>"];
-    if (openingBodyRange.length != 0 && closingBodyRange.length != 0) {
+    if (!normalized && openingBodyRange.length != 0 &&
+        closingBodyRange.length != 0) {
       NSInteger newStart = openingBodyRange.location + 6;
       NSInteger newEnd = closingBodyRange.location - 1;
       fixedHtml = [htmlWithoutSpaces

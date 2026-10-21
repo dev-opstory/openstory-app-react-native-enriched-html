@@ -6,7 +6,7 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_swmansion_enriched_common_GumboNormalizer_normalizeHtml(
     JNIEnv *env, jclass /*cls*/, jstring htmlJString) {
   const char *htmlChars = env->GetStringUTFChars(htmlJString, nullptr);
-  std::string result = GumboParser::normalizeHtml(htmlChars);
+  std::string result = GumboParser::normalizeOpenStoryHtml(htmlChars);
   env->ReleaseStringUTFChars(htmlJString, htmlChars);
   if (result.empty())
     return nullptr;

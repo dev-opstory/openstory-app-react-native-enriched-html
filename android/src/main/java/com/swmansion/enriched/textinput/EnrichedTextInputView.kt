@@ -442,7 +442,11 @@ class EnrichedTextInputView :
   }
 
   private fun parseText(text: CharSequence): CharSequence {
-    val isInternalHtml = text.startsWith("<html>") && text.endsWith("</html>")
+    // Our own HTML is a bare <html> wrapper. A full document (head/body)
+    // comes from another app and must go through the normalizer.
+    val isDocument = text.contains("<head") || text.contains("<body")
+    val isInternalHtml =
+      text.startsWith("<html>") && text.endsWith("</html>") && !(useHtmlNormalizer && isDocument)
 
     if (isInternalHtml) {
       try {
