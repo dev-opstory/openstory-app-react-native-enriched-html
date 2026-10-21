@@ -59,6 +59,7 @@ static void const *kInputKey = &kInputKey;
 
   [self drawBlockQuotes:host origin:origin visibleCharRange:visibleCharRange];
   [self drawLists:host origin:origin visibleCharRange:visibleCharRange];
+  [self drawIndentBullets:host origin:origin visibleCharRange:visibleCharRange];
   [self drawCodeBlocks:host origin:origin visibleCharRange:visibleCharRange];
 }
 
@@ -340,6 +341,94 @@ static void const *kInputKey = &kInputKey;
                                      }
                                      // only first line of a list gets its
                                      // marker drawn
+                                     *stop = YES;
+                                   }];
+    }
+  }
+}
+
+// Bullets sit centred in the last indent slot before the text, so a bulleted
+// line's text starts where an unbulleted line of the same level does. Level
+// 1/2/3 draw a disc, a circle and a square.
+- (void)drawIndentBullets:(id<EnrichedViewHost>)host
+                   origin:(CGPoint)origin
+         visibleCharRange:(NSRange)visibleCharRange {
+  BulletStyle *bulletStyle = host.stylesDict[@([BulletStyle getType])];
+  IndentStyle *indentStyle = host.stylesDict[@([IndentStyle getType])];
+  if (bulletStyle == nullptr || indentStyle == nullptr) {
+    return;
+  }
+
+  CGFloat slotWidth = [indentStyle indentWidth];
+  CGFloat bulletSize = [host.config unorderedListBulletSize];
+  UIColor *bulletColor = [host.config unorderedListBulletColor];
+  UIFont *referenceFont = [host.config primaryFont];
+
+  for (StylePair *pair in [bulletStyle all:visibleCharRange]) {
+    NSArray *paragraphs =
+        [RangeUtils getSeparateParagraphsRangesIn:host.textView
+                                            range:[pair.rangeValue rangeValue]];
+    for (NSValue *paragraph in paragraphs) {
+      NSRange paragraphRange = [paragraph rangeValue];
+      if (paragraphRange.length == 0) {
+        continue;
+      }
+      NSParagraphStyle *pStyle =
+          [host.textView.textStorage attribute:NSParagraphStyleAttributeName
+                                       atIndex:paragraphRange.location
+                                effectiveRange:nil];
+      NSInteger level = MAX(1, [IndentStyle levelInParagraphStyle:pStyle]);
+      NSRange paragraphGlyphRange =
+          [self glyphRangeForCharacterRange:paragraphRange
+                       actualCharacterRange:nullptr];
+
+      [self
+          enumerateLineFragmentsForGlyphRange:paragraphGlyphRange
+                                   usingBlock:^(CGRect rect, CGRect usedRect,
+                                                NSTextContainer *container,
+                                                NSRange lineGlyphRange,
+                                                BOOL *stop) {
+                                     CGRect textUsedRect = [self
+                                         getTextAlignedUsedRect:usedRect
+                                                           font:referenceFont];
+                                     CGFloat centerX = origin.x +
+                                                       level * slotWidth -
+                                                       slotWidth / 2;
+                                     CGFloat centerY =
+                                         CGRectGetMidY(textUsedRect) +
+                                         origin.y;
+                                     CGRect box = CGRectMake(
+                                         centerX - bulletSize / 2,
+                                         centerY - bulletSize / 2, bulletSize,
+                                         bulletSize);
+                                     CGContextRef context =
+                                         UIGraphicsGetCurrentContext();
+                                     CGContextSaveGState(context);
+                                     if (level == 2) {
+                                       CGFloat lineWidth =
+                                           MAX(1.0, bulletSize / 6);
+                                       [bulletColor setStroke];
+                                       CGContextSetLineWidth(context,
+                                                             lineWidth);
+                                       CGContextStrokeEllipseInRect(
+                                           context,
+                                           CGRectInset(box, lineWidth / 2,
+                                                       lineWidth / 2));
+                                     } else if (level == 3) {
+                                       // a touch smaller than the disc so
+                                       // both read as the same weight
+                                       [bulletColor setFill];
+                                       CGContextFillRect(
+                                           context,
+                                           CGRectInset(box, bulletSize * 0.1,
+                                                       bulletSize * 0.1));
+                                     } else {
+                                       [bulletColor setFill];
+                                       CGContextFillEllipseInRect(context,
+                                                                  box);
+                                     }
+                                     CGContextRestoreGState(context);
+                                     // only the first line gets a marker
                                      *stop = YES;
                                    }];
     }

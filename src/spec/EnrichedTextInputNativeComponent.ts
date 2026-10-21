@@ -482,6 +482,8 @@ interface NativeCommands {
     viewRef: React.ElementRef<ComponentType>,
     alignment: string
   ) => void;
+  changeIndent: (viewRef: React.ElementRef<ComponentType>, delta: Int32) => void;
+  toggleBullet: (viewRef: React.ElementRef<ComponentType>) => void;
 }
 
 export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
@@ -516,6 +518,8 @@ export const Commands: NativeCommands = codegenNativeCommands<NativeCommands>({
     'addMention',
     'requestHTML',
     'setTextAlignment',
+    'changeIndent',
+    'toggleBullet',
   ],
 });
 

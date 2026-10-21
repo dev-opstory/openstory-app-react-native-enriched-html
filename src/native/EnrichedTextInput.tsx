@@ -277,6 +277,12 @@ export const EnrichedTextInput = ({
     ) => {
       Commands.setTextAlignment(nullthrows(nativeRef.current), alignment);
     },
+    changeIndent: (delta: number) => {
+      Commands.changeIndent(nullthrows(nativeRef.current), delta);
+    },
+    toggleBullet: () => {
+      Commands.toggleBullet(nullthrows(nativeRef.current));
+    },
   }));
 
   const handleMentionEvent = (e: NativeSyntheticEvent<OnMentionEvent>) => {

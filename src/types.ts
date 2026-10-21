@@ -564,6 +564,8 @@ export interface EnrichedTextInputInstance extends NativeMethods {
   setTextAlignment: (
     alignment: 'left' | 'center' | 'right' | 'justify' | 'auto'
   ) => void;
+  changeIndent: (delta: number) => void;
+  toggleBullet: () => void;
 }
 
 export interface ContextMenuItem {

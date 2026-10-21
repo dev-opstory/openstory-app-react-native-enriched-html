@@ -208,15 +208,24 @@
     return;
   }
 
+  IndentStyle *indentStyle = _input.stylesDict[@([IndentStyle getType])];
+
   for (AlignmentEntry *entry in alignments) {
     // Offset the range (e.g. if inserting into the middle of text)
     NSRange finalRange =
         NSMakeRange(offset + entry.range.location, entry.range.length);
 
-    [alignmentStyle addAlignment:entry.alignment
-                           range:finalRange
-                      withTyping:NO
-                  withDirtyRange:NO];
+    if (entry.alignment != NSTextAlignmentNatural) {
+      [alignmentStyle addAlignment:entry.alignment
+                             range:finalRange
+                        withTyping:NO
+                    withDirtyRange:NO];
+    }
+    if (indentStyle != nil && (entry.indentLevel > 0 || entry.bullet)) {
+      [indentStyle setLevel:entry.indentLevel
+                     bullet:entry.bullet
+           inParagraphRange:finalRange];
+    }
   }
 }
 

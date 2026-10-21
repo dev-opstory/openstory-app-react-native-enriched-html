@@ -5,6 +5,7 @@
 #import "StyleHeaders.h"
 #import "StyleUtils.h"
 #import "TextInsertionUtils.h"
+#import "TextListsUtils.h"
 
 @implementation ParagraphAttributesUtils
 
@@ -274,10 +275,23 @@
   NSMutableParagraphStyle *paraStyle =
       [resetAttrs[NSParagraphStyleAttributeName] mutableCopy]
           ?: [[NSMutableParagraphStyle alloc] init];
-  paraStyle.textLists = @[ [[NSTextList alloc]
+  NSMutableArray<NSTextList *> *textLists = [@[ [[NSTextList alloc]
       initWithMarkerFormat:[AlignmentUtils alignmentToMarker:alignment]
-                   options:0] ];
+                   options:0] ] mutableCopy];
+  // the indent level belongs to the line, not to the typed characters, so it
+  // survives the reset just like alignment
+  NSParagraphStyle *currentParaStyle =
+      input->textView.typingAttributes[NSParagraphStyleAttributeName];
+  NSTextList *indentList =
+      [TextListsUtils firstTextListWithPrefix:@"EnrichedIndent"
+                                      inArray:currentParaStyle.textLists];
+  if (indentList != nil) {
+    [textLists addObject:indentList];
+  }
+  paraStyle.textLists = textLists;
   paraStyle.alignment = alignment;
+  IndentStyle *indentStyle = input->stylesDict[@([IndentStyle getType])];
+  [indentStyle applyIndentTo:paraStyle];
   resetAttrs[NSParagraphStyleAttributeName] = paraStyle;
 
   input->textView.typingAttributes = resetAttrs;

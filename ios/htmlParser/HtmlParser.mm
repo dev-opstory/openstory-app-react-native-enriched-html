@@ -877,8 +877,11 @@
     // check each existing style existence
     for (NSNumber *type in host.stylesDict) {
       StyleBase *style = host.stylesDict[type];
-      // we do not want to add <></> tags for alignment
-      if ([style isKindOfClass:[AlignmentStyle class]]) {
+      // we do not want to add <></> tags for alignment, indent or bullets;
+      // they are written as attributes of the paragraph tag
+      if ([style isKindOfClass:[AlignmentStyle class]] ||
+          [style isKindOfClass:[IndentStyle class]] ||
+          [style isKindOfClass:[BulletStyle class]]) {
         continue;
       }
       if ([style detect:currentRange]) {
@@ -1456,12 +1459,21 @@
                                    atIndex:location
                             effectiveRange:nil];
   NSString *alignStr = [AlignmentUtils cssValueForAlignment:pStyle.alignment];
+  NSMutableString *result = [NSMutableString string];
 
   if (alignStr) {
-    return [NSString stringWithFormat:@" style=\"text-align: %@\"", alignStr];
+    [result appendFormat:@" style=\"text-align: %@\"", alignStr];
   }
 
-  return @"";
+  NSInteger indentLevel = [IndentStyle levelInParagraphStyle:pStyle];
+  if (indentLevel > 0) {
+    [result appendFormat:@" data-indent=\"%ld\"", (long)indentLevel];
+  }
+  if ([IndentStyle isBulletInParagraphStyle:pStyle]) {
+    [result appendString:@" data-bullet=\"true\""];
+  }
+
+  return result;
 }
 
 + (void)checkForAlignments:(NSArray *)tagData
@@ -1477,7 +1489,26 @@
   NSTextAlignment align =
       [AlignmentUtils alignmentFromStyleParams:storedParams];
 
-  if (align != NSTextAlignmentNatural) {
+  NSInteger indentLevel = 0;
+  BOOL bullet = NO;
+  if (storedParams != nil) {
+    NSRegularExpression *indentRegex = [NSRegularExpression
+        regularExpressionWithPattern:@"data-indent\\s*=\\s*\"(\\d+)\""
+                             options:0
+                               error:nil];
+    NSTextCheckingResult *indentMatch =
+        [indentRegex firstMatchInString:storedParams
+                                options:0
+                                  range:NSMakeRange(0, storedParams.length)];
+    if (indentMatch) {
+      indentLevel = MIN(3, [[storedParams
+                               substringWithRange:[indentMatch rangeAtIndex:1]]
+                               integerValue]);
+    }
+    bullet = [storedParams containsString:@"data-bullet"];
+  }
+
+  if (align != NSTextAlignmentNatural || indentLevel > 0 || bullet) {
     NSInteger startLoc = [tagData[0] integerValue];
     // Calculate range relative to plainText
     NSInteger actualStart = startLoc + precedingImageCount;
@@ -1492,6 +1523,8 @@
     if (length > 0) {
       AlignmentEntry *entry = [[AlignmentEntry alloc] init];
       entry.alignment = align;
+      entry.indentLevel = indentLevel;
+      entry.bullet = bullet;
       entry.range = NSMakeRange(actualStart, length);
       [foundAlignments addObject:entry];
     }

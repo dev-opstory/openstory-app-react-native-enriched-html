@@ -1311,12 +1311,29 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   } else if ([commandName isEqualToString:@"requestHTML"]) {
     NSInteger requestId = [((NSNumber *)args[0]) integerValue];
     [self requestHTML:requestId];
+  } else if ([commandName isEqualToString:@"changeIndent"]) {
+    NSInteger delta = [((NSNumber *)args[0]) integerValue];
+    IndentStyle *indentStyle = stylesDict[@([IndentStyle getType])];
+    [indentStyle changeLevelBy:delta inRange:textView.selectedRange];
+    [self anyTextMayHaveBeenModified];
+  } else if ([commandName isEqualToString:@"toggleBullet"]) {
+    IndentStyle *indentStyle = stylesDict[@([IndentStyle getType])];
+    [indentStyle toggleBulletInRange:textView.selectedRange];
+    [self anyTextMayHaveBeenModified];
   } else if ([commandName isEqualToString:@"setTextAlignment"]) {
     NSString *alignmentString = (NSString *)args[0];
+    NSTextAlignment alignment =
+        [AlignmentUtils stringToAlignment:alignmentString];
+
+    // centred lines take no indent or bullet
+    if (alignment == NSTextAlignmentCenter) {
+      IndentStyle *indentStyle = stylesDict[@([IndentStyle getType])];
+      [indentStyle clearInRange:textView.selectedRange];
+    }
 
     AlignmentStyle *alignmentStyle = stylesDict[@([AlignmentStyle getType])];
     [alignmentStyle
-          addAlignment:[AlignmentUtils stringToAlignment:alignmentString]
+          addAlignment:alignment
                  range:textView.selectedRange
             withTyping:YES
         withDirtyRange:YES];
@@ -1976,6 +1993,14 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   }
 
   [self handleKeyPressInRange:text range:range];
+
+  // indent and bullet keys: Tab, Enter on an empty bullet, Backspace at the
+  // start of an indented line
+  IndentStyle *indentStyle = stylesDict[@([IndentStyle getType])];
+  if ([indentStyle handleKeyInRange:range replacementText:text]) {
+    [self anyTextMayHaveBeenModified];
+    return NO;
+  }
 
   CheckboxListStyle *cbLStyle =
       (CheckboxListStyle *)stylesDict[@([CheckboxListStyle getType])];

@@ -5,5 +5,7 @@
 
 @property(nonatomic, assign) NSRange range;
 @property(nonatomic, assign) NSTextAlignment alignment;
+@property(nonatomic, assign) NSInteger indentLevel;
+@property(nonatomic, assign) BOOL bullet;
 
 @end

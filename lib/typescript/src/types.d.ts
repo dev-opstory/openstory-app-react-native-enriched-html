@@ -477,6 +477,17 @@ export interface EnrichedTextInputInstance extends NativeMethods {
      * @param alignment - One of `"left"`, `"center"`, `"right"`, `"justify"`, or `"auto"`.
      */
     setTextAlignment: (alignment: 'left' | 'center' | 'right' | 'justify' | 'auto') => void;
+    /**
+     * Raises (positive) or lowers (negative) the indent level, 0-3, of every
+     * paragraph the selection touches. Bulleted paragraphs stay at level 1 or above.
+     * iOS only.
+     */
+    changeIndent: (delta: number) => void;
+    /**
+     * Adds a bullet to every paragraph the selection touches, or removes it when
+     * all already have one. The level is kept either way. iOS only.
+     */
+    toggleBullet: () => void;
 }
 export interface ContextMenuItem {
     text: string;

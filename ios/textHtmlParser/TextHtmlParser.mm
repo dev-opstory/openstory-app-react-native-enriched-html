@@ -170,6 +170,10 @@
   }
 
   for (AlignmentEntry *entry in alignments) {
+    // indent-only entries carry no alignment; the viewer ignores indent
+    if (entry.alignment == NSTextAlignmentNatural) {
+      continue;
+    }
     NSRange finalRange = NSMakeRange(entry.range.location, entry.range.length);
     [alignmentStyle addAlignment:entry.alignment
                            range:finalRange

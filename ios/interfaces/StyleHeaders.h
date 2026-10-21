@@ -98,6 +98,26 @@
 - (NSString *)getStyleState;
 @end
 
+// Paragraph indent (levels 1-3) plus an optional bullet. Both live as markers in
+// the paragraph style's textLists, the same way alignment does, so they survive
+// every reset that keeps textLists. The bullet is drawn in the last indent slot.
+@interface IndentStyle : StyleBase
++ (NSInteger)levelInParagraphStyle:(NSParagraphStyle *_Nullable)pStyle;
++ (BOOL)isBulletInParagraphStyle:(NSParagraphStyle *_Nullable)pStyle;
+- (CGFloat)indentWidth;
+- (void)applyIndentTo:(NSMutableParagraphStyle *_Nonnull)pStyle;
+- (void)setLevel:(NSInteger)level
+            bullet:(BOOL)bullet
+    inParagraphRange:(NSRange)range;
+- (void)changeLevelBy:(NSInteger)delta inRange:(NSRange)range;
+- (void)toggleBulletInRange:(NSRange)range;
+- (void)clearInRange:(NSRange)range;
+- (BOOL)handleKeyInRange:(NSRange)range replacementText:(NSString *_Nonnull)text;
+@end
+
+@interface BulletStyle : StyleBase
+@end
+
 @interface BlockQuoteStyle : StyleBase
 @end
 
