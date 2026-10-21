@@ -137,7 +137,11 @@ object MeasurementStore {
 
     try {
       val htmlStyle = HtmlStyle(defaultView, props.getMap("htmlStyle"))
-      val factory = EnrichedTextInputSpannableFactory()
+      val factory =
+        EnrichedTextInputSpannableFactory(
+          defaultView.context.assets,
+          allowFontScalingFromProps(props),
+        )
       val parsed = EnrichedParser.fromHtml(defaultValue, htmlStyle, factory)
       return parsed.trimEnd('\n')
     } catch (e: Exception) {
