@@ -49,6 +49,45 @@
   }
 }
 
+// Pasted HTML carries its own inline formats, but the text storage gives new
+// characters the attributes of the replaced text (or the caret's typing
+// attributes): a paste over large text came out entirely large. Reset the
+// inserted run to the defaults before applying the HTML's styles, keeping only
+// the paragraph style (alignment, indent, bullet) of the line it lands in.
+// Only with the OpenStory normalizer on, so editors without it keep the
+// upstream behaviour.
+- (void)resetInlineAttributesInRange:(NSRange)range {
+  if (!_input->useHtmlNormalizer || range.length == 0) {
+    return;
+  }
+  NSTextStorage *storage = _input->textView.textStorage;
+  NSMutableDictionary<NSAttributedStringKey, id> *attrs =
+      [_input->defaultTypingAttributes mutableCopy];
+  id paragraphStyle = [storage attribute:NSParagraphStyleAttributeName
+                                 atIndex:range.location
+                          effectiveRange:nil];
+  if (paragraphStyle != nil) {
+    attrs[NSParagraphStyleAttributeName] = paragraphStyle;
+  }
+  [storage setAttributes:attrs range:range];
+}
+
+// The caret was placed before the reset above, so its typing attributes are
+// still the replaced selection's: text typed right after the paste came out
+// large or bold. Continue with the last pasted character's format instead.
+- (void)syncTypingAttributesToCaret {
+  if (!_input->useHtmlNormalizer) {
+    return;
+  }
+  UITextView *textView = _input->textView;
+  NSUInteger caret = textView.selectedRange.location;
+  if (caret == 0 || caret > textView.textStorage.length) {
+    return;
+  }
+  textView.typingAttributes =
+      [textView.textStorage attributesAtIndex:caret - 1 effectiveRange:nil];
+}
+
 - (void)replaceFromHtml:(NSString *_Nonnull)html range:(NSRange)range {
   @try {
     NSArray *processingResult =
@@ -63,11 +102,14 @@
                additionalAttributes:nil
                                host:_input
                       withSelection:YES];
+    [self resetInlineAttributesInRange:NSMakeRange(range.location,
+                                                   plainText.length)];
 
     [self applyProcessedStyles:stylesInfo
            offsetFromBeginning:range.location
                plainTextLength:plainText.length];
     [self applyProcessedAlignments:alignments offset:range.location];
+    [self syncTypingAttributesToCaret];
     [_input anyTextMayHaveBeenModified];
   } @catch (NSException *exception) {
     RCTLogWarn(@"[EnrichedTextInput]: Failed to parse HTML: (%@), falling back "
@@ -95,11 +137,13 @@
               additionalAttributes:nil
                               host:_input
                      withSelection:YES];
+    [self resetInlineAttributesInRange:NSMakeRange(location, plainText.length)];
 
     [self applyProcessedStyles:stylesInfo
            offsetFromBeginning:location
                plainTextLength:plainText.length];
     [self applyProcessedAlignments:alignments offset:location];
+    [self syncTypingAttributesToCaret];
     [_input anyTextMayHaveBeenModified];
   } @catch (NSException *exception) {
     RCTLogWarn(@"[EnrichedTextInput]: Failed to parse HTML: (%@), falling back "
