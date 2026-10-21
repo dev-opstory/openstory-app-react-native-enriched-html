@@ -13,6 +13,7 @@
 #import "TextDecorationLineEnum.h"
 #import "TextHtmlParser.h"
 #import <React/RCTConversions.h>
+#import <React/RCTUtils.h>
 #import <ReactNativeEnrichedHtml/EnrichedTextComponentDescriptor.h>
 #import <ReactNativeEnrichedHtml/EventEmitters.h>
 #import <ReactNativeEnrichedHtml/Props.h>
@@ -151,6 +152,12 @@ Class<RCTComponentViewProtocol> EnrichedTextViewCls(void) {
     } else {
       [newConfig setPrimaryFontSize:nullptr];
     }
+    stylePropChanged = YES;
+  }
+
+  // lineHeight
+  if (newViewProps.lineHeight != oldViewProps.lineHeight) {
+    [newConfig setPrimaryLineHeight:newViewProps.lineHeight];
     stylePropChanged = YES;
   }
 
@@ -627,7 +634,54 @@ Class<RCTComponentViewProtocol> EnrichedTextViewCls(void) {
     return;
   }
   [_textParser replaceWholeFromHtml:_content];
+  [self applyBaselineOffset];
   [self layoutAttachments];
+}
+
+// With only minimumLineHeight set, TextKit puts all of a line's extra leading
+// above the glyphs, so the text sits at the bottom of its line box and draws
+// lower than the same string in an RN <Text> (or in CSS), which both split the
+// leading evenly. Raise each paragraph by half its extra leading - the same
+// offset RN's RCTApplyBaselineOffset computes. Positive offsets stay inside the
+// minimum line height, so line boxes and the measured height are unchanged.
+- (void)applyBaselineOffset {
+  NSTextStorage *storage = textView.textStorage;
+  NSString *string = storage.string;
+  if (string.length == 0) {
+    return;
+  }
+
+  [storage beginEditing];
+  NSUInteger location = 0;
+  while (location < string.length) {
+    NSRange paragraphRange =
+        [string paragraphRangeForRange:NSMakeRange(location, 0)];
+
+    __block CGFloat lineHeight = 0;
+    [storage enumerateAttribute:NSParagraphStyleAttributeName
+                        inRange:paragraphRange
+                        options:0
+                     usingBlock:^(NSParagraphStyle *style, NSRange range,
+                                  BOOL *stop) {
+                       lineHeight = MAX(lineHeight, style.minimumLineHeight);
+                     }];
+
+    __block CGFloat fontLineHeight = 0;
+    [storage enumerateAttribute:NSFontAttributeName
+                        inRange:paragraphRange
+                        options:0
+                     usingBlock:^(UIFont *font, NSRange range, BOOL *stop) {
+                       fontLineHeight = MAX(fontLineHeight, font.lineHeight);
+                     }];
+
+    if (fontLineHeight > 0 && lineHeight > fontLineHeight) {
+      [storage addAttribute:NSBaselineOffsetAttributeName
+                      value:@((lineHeight - fontLineHeight) / 2.0)
+                      range:paragraphRange];
+    }
+    location = NSMaxRange(paragraphRange);
+  }
+  [storage endEditing];
 }
 
 // MARK: - Measuring and state
@@ -682,7 +736,9 @@ Class<RCTComponentViewProtocol> EnrichedTextViewCls(void) {
 
   CGRect usedRect =
       [measurementLayoutManager usedRectForTextContainer:measurementContainer];
-  CGFloat measuredHeight = ceil(usedRect.size.height);
+  // Pixel grid, not whole points: RN rounds <Text> the same way, and a whole
+  // point ceil made this view up to a point taller than the same text in RN.
+  CGFloat measuredHeight = RCTCeilPixelValue(usedRect.size.height);
 
   return CGSizeMake(maxWidth, measuredHeight);
 }

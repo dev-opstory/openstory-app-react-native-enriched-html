@@ -1618,6 +1618,7 @@ class EnrichedTextViewProps final : public ViewProps {
   std::string fontFamily{};
   std::string fontWeight{};
   std::string fontStyle{};
+  Float lineHeight{0.0};
 
   #ifdef RN_SERIALIZABLE_STATE
   ComponentName getDiffPropsImplementationTarget() const override;

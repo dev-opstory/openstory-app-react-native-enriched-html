@@ -172,7 +172,14 @@ class EnrichedTextInputView :
     // Android's internal cursor tracker gets confused by ALIGN_CENTER + LeadingMarginSpan
     // and attempts to scroll the text horizontally.
     // We lock the horizontal scroll to 0 to prevent the view from shifting.
-    super.scrollTo(0, y)
+    //
+    // With `scrollEnabled=false` the box is sized to its text by Yoga, so the view never
+    // has anything to scroll — but that size lands a frame after the text changed, and
+    // `isLayoutRequested()` below makes `TextView.bringPointIntoView` run against the old
+    // bounds in the meantime. On Enter that scrolled the text up a line, then back down
+    // once the box grew. Lock the vertical scroll too; the new line is clipped for that
+    // one frame instead of the whole block jumping.
+    super.scrollTo(0, if (scrollEnabled) y else 0)
   }
 
   override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
@@ -512,6 +519,9 @@ class EnrichedTextInputView :
     if (placeholder == null) return
 
     hint = placeholder
+    // The hint is part of the measured height while it is showing — a new one (another
+    // length, another locale) has to be measured again.
+    layoutManager.invalidateLayout()
   }
 
   fun setPlaceholderTextColor(colorInt: Int?) {

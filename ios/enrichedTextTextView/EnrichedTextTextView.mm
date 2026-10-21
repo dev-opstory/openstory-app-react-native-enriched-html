@@ -6,6 +6,22 @@
 
 @implementation EnrichedTextTextView
 
+// A non-scrolling UITextView sizes its container to its own bounds, and TextKit
+// truncates whatever does not fit that height. Yoga hands the view its measured
+// height through float32 layout, so a box measured at exactly two lines can
+// arrive a few ten-thousandths of a point short — enough for TextKit to drop
+// the second line behind an ellipsis, depending only on where the view sits on
+// the page. The box already has the height measureSize asked for, and
+// maximumNumberOfLines does the truncating the numberOfLines prop asks for, so
+// the container height does nothing but add that failure. Unbound it.
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  NSTextContainer *container = self.textContainer;
+  if (container.size.height != CGFLOAT_MAX) {
+    container.size = CGSizeMake(container.size.width, CGFLOAT_MAX);
+  }
+}
+
 - (void)copy:(id)sender {
   EnrichedTextView *host = self.host;
   if (host == nullptr) {

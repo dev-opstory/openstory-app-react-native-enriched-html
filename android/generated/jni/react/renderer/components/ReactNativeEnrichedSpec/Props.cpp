@@ -196,7 +196,8 @@ EnrichedTextViewProps::EnrichedTextViewProps(
     fontSize(convertRawProp(context, rawProps, "fontSize", sourceProps.fontSize, {0.0})),
     fontFamily(convertRawProp(context, rawProps, "fontFamily", sourceProps.fontFamily, {})),
     fontWeight(convertRawProp(context, rawProps, "fontWeight", sourceProps.fontWeight, {})),
-    fontStyle(convertRawProp(context, rawProps, "fontStyle", sourceProps.fontStyle, {})) {}
+    fontStyle(convertRawProp(context, rawProps, "fontStyle", sourceProps.fontStyle, {})),
+    lineHeight(convertRawProp(context, rawProps, "lineHeight", sourceProps.lineHeight, {0.0})) {}
     
 #ifdef RN_SERIALIZABLE_STATE
 ComponentName EnrichedTextViewProps::getDiffPropsImplementationTarget() const {
@@ -264,6 +265,10 @@ folly::dynamic EnrichedTextViewProps::getDiffProps(
     
   if (fontStyle != oldProps->fontStyle) {
     result["fontStyle"] = fontStyle;
+  }
+    
+  if ((lineHeight != oldProps->lineHeight) && !(std::isnan(lineHeight) && std::isnan(oldProps->lineHeight))) {
+    result["lineHeight"] = lineHeight;
   }
   return result;
 }

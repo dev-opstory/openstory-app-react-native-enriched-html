@@ -103,6 +103,7 @@ export interface NativeProps extends ViewProps {
   fontFamily?: string;
   fontWeight?: string;
   fontStyle?: string;
+  lineHeight?: Float;
 }
 
 export default codegenNativeComponent<NativeProps>('EnrichedTextView', {

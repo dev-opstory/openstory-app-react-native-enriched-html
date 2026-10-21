@@ -15,7 +15,7 @@
 #import "StyleUtils.h"
 #import "TextBlockTapGestureRecognizer.h"
 #import "TextInsertionUtils.h"
-#import "UIView+React.h"
+#import <React/UIView+React.h>
 #import "WordsUtils.h"
 #import "ZeroWidthSpaceUtils.h"
 #import <React/RCTConversions.h>
@@ -178,11 +178,15 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
         constraintEqualToAnchor:textView.leadingAnchor],
     [_placeholderLabel.widthAnchor
         constraintEqualToAnchor:textView.widthAnchor],
-    [_placeholderLabel.topAnchor constraintEqualToAnchor:textView.topAnchor],
-    [_placeholderLabel.bottomAnchor
-        constraintEqualToAnchor:textView.bottomAnchor]
+    [_placeholderLabel.topAnchor constraintEqualToAnchor:textView.topAnchor]
   ]];
-  _placeholderLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+  // A placeholder longer than one line wraps like typed text would — `measureSize:`
+  // grows the input to fit it. Only the top is pinned so the wrapped lines sit where
+  // the text will, instead of centred in whatever height a `minHeight` style leaves.
+  // (A one-line label clipped rather than truncated anyway: the attributed paragraph
+  // style set in `refreshPlaceholderLabelStyles` overrides the label's line break mode.)
+  _placeholderLabel.numberOfLines = 0;
+  _placeholderLabel.lineBreakMode = NSLineBreakByWordWrapping;
   _placeholderLabel.text = @"";
   _placeholderLabel.hidden = YES;
   _placeholderLabel.adjustsFontForContentSizeCategory = YES;
@@ -766,6 +770,12 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
     if (isFirstMount && textView.text.length == 0) {
       [self setPlaceholderLabelShown:YES];
     }
+    // The placeholder is part of the measured height while it is showing, so a new one
+    // (a different length, another locale) has to be measured again. A no-op before the
+    // state exists — the first measure on `updateState` picks it up.
+    if (textView.textStorage.string.length == 0) {
+      [self tryUpdatingHeight];
+    }
   }
 
   // mention indicators
@@ -962,8 +972,27 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
                                options:NSStringDrawingUsesLineFragmentOrigin |
                                        NSStringDrawingUsesFontLeading
                                context:nullptr];
+  CGFloat height = ceil(boundingBox.size.height);
 
-  return CGSizeMake(maxWidth, ceil(boundingBox.size.height));
+  // An empty input shows the placeholder, and that wraps like any other text. RN's own
+  // `RCTUITextView` returns MAX(text, placeholder) from `sizeThatFits:` for the same
+  // reason: at one line's height every placeholder line past the first is clipped.
+  // Same attributes `refreshPlaceholderLabelStyles` draws the label with, so the
+  // measured leading is the drawn leading.
+  if (textView.textStorage.string.length == 0 &&
+      _placeholderLabel.text.length > 0) {
+    NSAttributedString *placeholderStr =
+        [[NSAttributedString alloc] initWithString:_placeholderLabel.text
+                                        attributes:defaultTypingAttributes];
+    CGRect placeholderBox = [placeholderStr
+        boundingRectWithSize:CGSizeMake(maxWidth, CGFLOAT_MAX)
+                     options:NSStringDrawingUsesLineFragmentOrigin |
+                             NSStringDrawingUsesFontLeading
+                     context:nullptr];
+    height = MAX(height, ceil(placeholderBox.size.height));
+  }
+
+  return CGSizeMake(maxWidth, height);
 }
 
 // make sure the newest state is kept in _state property

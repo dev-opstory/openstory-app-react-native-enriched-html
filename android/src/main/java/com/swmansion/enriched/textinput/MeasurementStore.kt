@@ -36,6 +36,8 @@ object MeasurementStore {
     val cachedSize: Long,
     val spannable: CharSequence?,
     val paintParams: PaintParams,
+    /** The hint showing over an empty input, or null while text hides it. */
+    val hint: CharSequence? = null,
   )
 
   private val data = ConcurrentHashMap<Int, MeasurementParams>()
@@ -44,15 +46,16 @@ object MeasurementStore {
     id: Int,
     spannable: Spannable?,
     paint: TextPaint,
+    hint: CharSequence?,
   ): Boolean {
     val cachedWidth = data[id]?.cachedWidth ?: 0f
     val cachedSize = data[id]?.cachedSize ?: 0L
     val initialized = data[id]?.initialized ?: true
 
-    val size = measure(cachedWidth, spannable, paint)
+    val size = measure(cachedWidth, spannable, paint, hint)
     val paintParams = PaintParams(paint.typeface, paint.textSize)
 
-    data[id] = MeasurementParams(initialized, cachedWidth, size, spannable, paintParams)
+    data[id] = MeasurementParams(initialized, cachedWidth, size, spannable, paintParams, hint)
     return cachedSize != size
   }
 
@@ -64,6 +67,7 @@ object MeasurementStore {
     maxWidth: Float,
     spannable: CharSequence?,
     paintParams: PaintParams,
+    hint: CharSequence?,
   ): Long {
     val paint =
       TextPaint().apply {
@@ -71,19 +75,39 @@ object MeasurementStore {
         textSize = paintParams.fontSize
       }
 
-    return measure(maxWidth, spannable, paint)
+    return measure(maxWidth, spannable, paint, hint)
   }
 
+  /**
+   * Height of the text, or of the hint when one is showing over it — whichever is taller.
+   * The hint wraps like typed text would, and at one line's height every line past the
+   * first is clipped. Same as `TextView.onMeasure` sizing to `mHintLayout` for empty text.
+   * The hint is measured plain, as `TextView` draws it: the line-height span lives on the
+   * text alone.
+   */
   private fun measure(
     maxWidth: Float,
     spannable: CharSequence?,
     paint: TextPaint,
+    hint: CharSequence?,
   ): Long {
-    val text = spannable ?: ""
-    val textLength = text.length
+    var heightPx = layoutHeight(maxWidth, spannable ?: "", paint)
+    if (!hint.isNullOrEmpty()) {
+      heightPx = maxOf(heightPx, layoutHeight(maxWidth, hint, paint))
+    }
+    val heightInSP = PixelUtil.toDIPFromPixel(heightPx.toFloat())
+    val widthInSP = PixelUtil.toDIPFromPixel(maxWidth)
+    return YogaMeasureOutput.make(widthInSP, heightInSP)
+  }
+
+  private fun layoutHeight(
+    maxWidth: Float,
+    text: CharSequence,
+    paint: TextPaint,
+  ): Int {
     val builder =
       StaticLayout.Builder
-        .obtain(text, 0, textLength, paint, maxWidth.toInt())
+        .obtain(text, 0, text.length, paint, maxWidth.toInt())
         .setIncludePad(true)
         .setLineSpacing(0f, 1f)
 
@@ -95,10 +119,7 @@ object MeasurementStore {
       builder.setUseLineSpacingFromFallbacks(true)
     }
 
-    val staticLayout = builder.build()
-    val heightInSP = PixelUtil.toDIPFromPixel(staticLayout.height.toFloat())
-    val widthInSP = PixelUtil.toDIPFromPixel(maxWidth)
-    return YogaMeasureOutput.make(widthInSP, heightInSP)
+    return builder.build().height
   }
 
   // Returns either: Spannable parsed from HTML defaultValue, or plain text defaultValue, or "I" if no defaultValue
@@ -149,6 +170,10 @@ object MeasurementStore {
     defaultView.allowFontScaling = allowFontScaling
 
     val rawText = getInitialText(defaultView, props)
+    // The "I" standing in for a missing defaultValue is not content — the hint shows
+    // over it, so it has to be part of this first measure too.
+    val isEmpty = props?.getString("defaultValue") == null || rawText.isEmpty()
+    val hint = if (isEmpty) props?.getString("placeholder") else null
     val fontSize = getInitialFontSize(defaultView, props)
     val lineHeight = props?.getDouble("lineHeight")?.toFloat() ?: 0f
 
@@ -172,10 +197,10 @@ object MeasurementStore {
 
     val typeface = applyStyles(defaultView.typeface, fontStyle, fontWeight, fontFamily, context.assets)
     val paintParams = PaintParams(typeface, fontSize)
-    val size = measure(width, text, paintParams)
+    val size = measure(width, text, paintParams, hint)
 
     if (id != null) {
-      data[id] = MeasurementParams(true, width, size, text, paintParams)
+      data[id] = MeasurementParams(true, width, size, text, paintParams, hint)
     }
 
     return size
@@ -204,8 +229,8 @@ object MeasurementStore {
         textSize = value.paintParams.fontSize
       }
 
-    val size = measure(width, value.spannable, paint)
-    data[id] = MeasurementParams(true, width, size, value.spannable, value.paintParams)
+    val size = measure(width, value.spannable, paint, value.hint)
+    data[id] = MeasurementParams(true, width, size, value.spannable, value.paintParams, value.hint)
     return size
   }
 

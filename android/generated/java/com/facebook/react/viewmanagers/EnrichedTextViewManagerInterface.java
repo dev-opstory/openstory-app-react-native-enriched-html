@@ -28,4 +28,5 @@ public interface EnrichedTextViewManagerInterface<T extends View> extends ViewMa
   void setFontFamily(T view, @Nullable String value);
   void setFontWeight(T view, @Nullable String value);
   void setFontStyle(T view, @Nullable String value);
+  void setLineHeight(T view, float value);
 }

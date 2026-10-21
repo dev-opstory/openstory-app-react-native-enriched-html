@@ -64,6 +64,9 @@ public class EnrichedTextViewManagerDelegate<T extends View, U extends BaseViewM
       case "fontStyle":
         mViewManager.setFontStyle(view, value == null ? null : (String) value);
         break;
+      case "lineHeight":
+        mViewManager.setLineHeight(view, value == null ? 0f : ((Double) value).floatValue());
+        break;
       default:
         super.setProperty(view, propName, value);
     }
