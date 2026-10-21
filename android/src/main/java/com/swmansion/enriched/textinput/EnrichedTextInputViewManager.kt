@@ -486,6 +486,14 @@ class EnrichedTextInputViewManager :
     view?.setStyle(styleJSON)
   }
 
+  // Indent and bullets are iOS-only for now; the commands are accepted and ignored.
+  override fun changeIndent(
+    view: EnrichedTextInputView?,
+    delta: Int,
+  ) {}
+
+  override fun toggleBullet(view: EnrichedTextInputView?) {}
+
   override fun measure(
     context: Context,
     localData: ReadableMap?,
