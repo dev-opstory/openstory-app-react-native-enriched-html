@@ -13,6 +13,7 @@ import android.text.Editable
 import android.text.InputType
 import android.text.Spannable
 import android.text.SpannableString
+import android.text.Spanned
 import android.util.AttributeSet
 import android.util.Log
 import android.util.Patterns
@@ -1023,8 +1024,33 @@ class EnrichedTextInputView :
   }
 
   fun setTextAlignment(alignment: String) {
+    // The first alignment of a paragraph inserts a ZWS at its start, and that edit drops
+    // the selection. Track the selection across the edit with marker spans and put it
+    // back: a ZWS inserted at the start lands before the selection, one inserted at the
+    // end (the next paragraph's anchor) stays outside it.
+    val spannable = text
+    val selStart = selectionStart
+    val selEnd = selectionEnd
+    val startMarker = Any()
+    val endMarker = Any()
+    val tracksSelection = selStart in 0 until selEnd
+    if (tracksSelection && spannable != null) {
+      spannable.setSpan(startMarker, selStart, selStart, Spanned.SPAN_POINT_POINT)
+      spannable.setSpan(endMarker, selEnd, selEnd, Spanned.SPAN_MARK_MARK)
+    }
+
     runAsATransaction {
       alignmentStyles?.setAlignment(alignment)
+    }
+
+    if (tracksSelection && spannable != null) {
+      val newStart = spannable.getSpanStart(startMarker)
+      val newEnd = spannable.getSpanEnd(endMarker)
+      spannable.removeSpan(startMarker)
+      spannable.removeSpan(endMarker)
+      if (newStart in 0 until newEnd && (selectionStart != newStart || selectionEnd != newEnd)) {
+        setSelection(newStart, newEnd)
+      }
     }
     selection?.validateStyles()
   }
