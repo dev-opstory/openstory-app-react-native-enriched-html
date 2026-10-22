@@ -258,17 +258,22 @@ static const NSInteger kMaxIndentLevel = 3;
                      containsValue:kCenterMarker];
 }
 
-// Two characters of the base font per level, whatever size the line's own text
-// is.
+// About two Latin letters of the 16pt body per level, fixed whatever size the
+// line's own text is. Matches web's RICH_TEXT_INDENT_UNIT_PX.
+static const CGFloat kIndentUnit = 18;
+
 - (CGFloat)indentWidth {
-  return 2 * [[self.host.config primaryFontSize] floatValue];
+  return kIndentUnit;
 }
 
+// A plain paragraph indents its first line only; a bulleted one indents every
+// line so wrapped text hangs under the text, not the marker.
 - (void)applyIndentTo:(NSMutableParagraphStyle *)pStyle {
   CGFloat indent =
       [IndentStyle levelInParagraphStyle:pStyle] * [self indentWidth];
-  pStyle.headIndent = indent;
   pStyle.firstLineHeadIndent = indent;
+  pStyle.headIndent =
+      [IndentStyle isBulletInParagraphStyle:pStyle] ? indent : 0;
 }
 
 - (void)applyStyling:(NSRange)range {
@@ -424,7 +429,10 @@ static const NSInteger kMaxIndentLevel = 3;
                                      value:pStyle
                                      range:subRange];
                    }];
-  [self.host.attributesManager addDirtyRange:range];
+  // the read-only viewer has no attributes manager
+  if ([self.host respondsToSelector:@selector(attributesManager)]) {
+    [self.host.attributesManager addDirtyRange:range];
+  }
 }
 
 // Markers were written straight into the storage, so the caret's typing

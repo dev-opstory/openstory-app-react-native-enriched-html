@@ -192,12 +192,14 @@
     dict[@([baseClasses[i] getType])] = instance;
   }
 
-  // input only for now: the viewer has no parser support for them yet
-  if (isInput) {
-    for (Class targetClass in @[ [IndentStyle class], [BulletStyle class] ]) {
-      StyleBase *instance = [[targetClass alloc] initWithHost:host];
-      dict[@([targetClass getType])] = instance;
-    }
+  // The viewer indents but draws no bullets: hosts that show bullets read-only
+  // draw their own markers around it.
+  NSArray<Class> *paragraphClasses =
+      isInput ? @[ [IndentStyle class], [BulletStyle class] ]
+              : @[ [IndentStyle class] ];
+  for (Class targetClass in paragraphClasses) {
+    StyleBase *instance = [[targetClass alloc] initWithHost:host];
+    dict[@([targetClass getType])] = instance;
   }
 
   return [dict copy];

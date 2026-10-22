@@ -182,17 +182,25 @@
     return;
   }
 
+  IndentStyle *indentStyle = _view.stylesDict[@([IndentStyle getType])];
+
   for (AlignmentEntry *entry in alignments) {
-    // indent-only entries carry no alignment; the viewer ignores indent
-    if (entry.alignment == NSTextAlignmentNatural) {
-      continue;
-    }
     NSRange finalRange = NSMakeRange(entry.range.location, entry.range.length);
-    [alignmentStyle addAlignment:entry.alignment
-                           range:finalRange
-                      withTyping:NO
-                  withDirtyRange:NO];
-    [alignmentStyle applyStyling:finalRange];
+    if (entry.alignment != NSTextAlignmentNatural) {
+      [alignmentStyle addAlignment:entry.alignment
+                             range:finalRange
+                        withTyping:NO
+                    withDirtyRange:NO];
+      [alignmentStyle applyStyling:finalRange];
+    }
+    // The viewer has no attributes manager to restyle the markers later, so
+    // turn them into head indents right away.
+    if (indentStyle != nil && (entry.indentLevel > 0 || entry.bullet)) {
+      [indentStyle setLevel:entry.indentLevel
+                     bullet:entry.bullet
+           inParagraphRange:finalRange];
+      [indentStyle applyStyling:finalRange];
+    }
   }
 }
 
