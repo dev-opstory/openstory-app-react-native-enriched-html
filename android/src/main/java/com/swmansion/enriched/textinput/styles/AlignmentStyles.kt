@@ -223,6 +223,10 @@ class AlignmentStyles(
       val (paraStart, paraEnd) = spannable.getParagraphBounds(cursor)
 
       cleanUpExistingSpans(spannable, paraStart, paraEnd)
+      // centred paragraphs take no indent or bullet
+      if (cssValue == "center") {
+        view.indentStyles?.removeIndentSpans(spannable, paraStart, paraEnd)
+      }
 
       if (cssValue != "auto") {
         if (paraStart == paraEnd) {

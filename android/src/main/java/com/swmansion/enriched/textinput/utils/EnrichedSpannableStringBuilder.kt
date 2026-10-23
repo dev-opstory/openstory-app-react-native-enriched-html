@@ -3,6 +3,7 @@ package com.swmansion.enriched.textinput.utils
 import android.text.SpannableStringBuilder
 import com.swmansion.enriched.common.EnrichedConstants
 import com.swmansion.enriched.textinput.spans.EnrichedInputAlignmentSpan
+import com.swmansion.enriched.textinput.spans.EnrichedInputIndentSpan
 
 fun CharSequence.zwsCountBefore(index: Int): Int {
   var count = 0
@@ -50,8 +51,9 @@ fun SpannableStringBuilder.safelyRemoveZWS(
   if (safeStart == safeEnd) return
 
   val hasAlignment = getSpans(safeStart, safeEnd, EnrichedInputAlignmentSpan::class.java).isNotEmpty()
+  val hasIndent = getSpans(safeStart, safeEnd, EnrichedInputIndentSpan::class.java).isNotEmpty()
 
-  if (hasAlignment) return
+  if (hasAlignment || hasIndent) return
 
   for (i in (safeEnd - 1) downTo safeStart) {
     if (this[i] == EnrichedConstants.ZWS) delete(i, i + 1)

@@ -10,6 +10,7 @@ import com.swmansion.enriched.textinput.EnrichedTextInputView
 import com.swmansion.enriched.textinput.events.OnChangeTextEvent
 import com.swmansion.enriched.textinput.spans.EnrichedInputAlignmentSpan
 import com.swmansion.enriched.textinput.spans.EnrichedSpans
+import com.swmansion.enriched.textinput.styles.IndentStyles
 
 class EnrichedTextWatcher(
   private val view: EnrichedTextInputView,
@@ -20,6 +21,7 @@ class EnrichedTextWatcher(
 
   private var deletedText: String = ""
   private var anchorAlignmentToRestore: String? = null
+  private var deletedIndentAnchor: IndentStyles.ParagraphIndent? = null
 
   override fun beforeTextChanged(
     s: CharSequence?,
@@ -31,6 +33,12 @@ class EnrichedTextWatcher(
     deletedText = if (count > 0 && s != null) s.substring(start, start + count) else ""
 
     anchorAlignmentToRestore = null
+    deletedIndentAnchor =
+      if (deletedText == EnrichedConstants.ZWS_STRING && s is Spannable) {
+        view.indentStyles?.indentAnchoredAt(s, start)
+      } else {
+        null
+      }
 
     // When a ZWS is being deleted, check whether it was anchoring a list or paragraph
     // style. If so, capture the co-located alignment value so AlignmentStyles can
@@ -79,6 +87,7 @@ class EnrichedTextWatcher(
     view.paragraphStyles?.afterTextChanged(s, endCursorPosition, previousTextLength)
     view.listStyles?.afterTextChanged(s, endCursorPosition, previousTextLength)
     view.alignmentStyles?.afterTextChanged(s, endCursorPosition, deletedText, anchorAlignmentToRestore)
+    view.indentStyles?.afterTextChanged(s, startCursorPosition, endCursorPosition, deletedText, deletedIndentAnchor)
     view.shortcutsHandler?.afterTextChanged(s, endCursorPosition, previousTextLength)
     view.parametrizedStyles?.afterTextChanged(s, startCursorPosition, endCursorPosition)
   }

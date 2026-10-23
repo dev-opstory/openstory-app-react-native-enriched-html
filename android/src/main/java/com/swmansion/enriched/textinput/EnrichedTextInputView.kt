@@ -61,6 +61,7 @@ import com.swmansion.enriched.textinput.spans.EnrichedLineHeightSpan
 import com.swmansion.enriched.textinput.spans.EnrichedSpans
 import com.swmansion.enriched.textinput.spans.interfaces.EnrichedInputSpan
 import com.swmansion.enriched.textinput.styles.AlignmentStyles
+import com.swmansion.enriched.textinput.styles.IndentStyles
 import com.swmansion.enriched.textinput.styles.CustomStyles
 import com.swmansion.enriched.textinput.styles.HtmlStyle
 import com.swmansion.enriched.textinput.styles.InlineStyles
@@ -93,6 +94,7 @@ class EnrichedTextInputView :
   val shortcutsHandler: ShortcutsHandler? = ShortcutsHandler(this)
   val parametrizedStyles: ParametrizedStyles? = ParametrizedStyles(this)
   val alignmentStyles: AlignmentStyles? = AlignmentStyles(this)
+  val indentStyles: IndentStyles? = IndentStyles(this)
   val customStyles: CustomStyles? = CustomStyles(this)
   var isDuringTransaction: Boolean = false
   var isRemovingMany: Boolean = false
@@ -1024,10 +1026,35 @@ class EnrichedTextInputView :
   }
 
   fun setTextAlignment(alignment: String) {
-    // The first alignment of a paragraph inserts a ZWS at its start, and that edit drops
-    // the selection. Track the selection across the edit with marker spans and put it
-    // back: a ZWS inserted at the start lands before the selection, one inserted at the
-    // end (the next paragraph's anchor) stays outside it.
+    preservingSelection {
+      alignmentStyles?.setAlignment(alignment)
+    }
+    selection?.validateStyles()
+  }
+
+  fun changeIndent(delta: Int) {
+    preservingSelection {
+      indentStyles?.changeIndent(delta)
+    }
+    selection?.validateStyles()
+  }
+
+  fun toggleBullet() {
+    preservingSelection {
+      indentStyles?.toggleBullet()
+    }
+    selection?.validateStyles()
+  }
+
+  /**
+   * Run a paragraph format change as a transaction and keep the selection across it.
+   *
+   * A paragraph that gains its first format gets a ZWS at its start, and that edit drops
+   * the selection. Marker spans track the selection through the edit so it can be put
+   * back: a ZWS inserted at the start lands before the selection, one inserted at the end
+   * (the next paragraph's anchor) stays outside it.
+   */
+  private fun preservingSelection(block: () -> Unit) {
     val spannable = text
     val selStart = selectionStart
     val selEnd = selectionEnd
@@ -1039,9 +1066,7 @@ class EnrichedTextInputView :
       spannable.setSpan(endMarker, selEnd, selEnd, Spanned.SPAN_MARK_MARK)
     }
 
-    runAsATransaction {
-      alignmentStyles?.setAlignment(alignment)
-    }
+    runAsATransaction(block)
 
     if (tracksSelection && spannable != null) {
       val newStart = spannable.getSpanStart(startMarker)
@@ -1052,7 +1077,6 @@ class EnrichedTextInputView :
         setSelection(newStart, newEnd)
       }
     }
-    selection?.validateStyles()
   }
 
   fun setStyle(styleJSON: String) {

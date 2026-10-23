@@ -15,6 +15,7 @@ import com.swmansion.enriched.text.spans.EnrichedTextH3Span
 import com.swmansion.enriched.text.spans.EnrichedTextH4Span
 import com.swmansion.enriched.text.spans.EnrichedTextH5Span
 import com.swmansion.enriched.text.spans.EnrichedTextH6Span
+import com.swmansion.enriched.text.spans.EnrichedTextIndentSpan
 import com.swmansion.enriched.text.spans.EnrichedTextImageSpan
 import com.swmansion.enriched.text.spans.EnrichedTextInlineCodeSpan
 import com.swmansion.enriched.text.spans.EnrichedTextItalicSpan
@@ -30,6 +31,12 @@ class EnrichedTextSpanFactory(
   private val allowFontScaling: Boolean,
 ) : EnrichedSpanFactory<EnrichedTextStyle> {
   override fun createAlignmentSpan(cssValue: String) = EnrichedTextAlignmentSpan(cssValue)
+
+  override fun createIndentSpan(
+    level: Int,
+    isBullet: Boolean,
+    style: EnrichedTextStyle,
+  ) = EnrichedTextIndentSpan(level, isBullet, style)
 
   override fun createBoldSpan(style: EnrichedTextStyle) = EnrichedTextBoldSpan(style)
 

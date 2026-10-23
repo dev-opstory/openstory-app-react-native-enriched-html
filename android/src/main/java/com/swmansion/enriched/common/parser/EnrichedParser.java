@@ -10,6 +10,7 @@ import com.swmansion.enriched.common.CustomStyle;
 import com.swmansion.enriched.common.EnrichedConstants;
 import com.swmansion.enriched.common.EnrichedSpanFlags;
 import com.swmansion.enriched.common.spans.EnrichedAlignmentSpan;
+import com.swmansion.enriched.common.spans.EnrichedIndentSpan;
 import com.swmansion.enriched.common.spans.EnrichedBoldSpan;
 import com.swmansion.enriched.common.spans.EnrichedCheckboxListSpan;
 import com.swmansion.enriched.common.spans.EnrichedCodeBlockSpan;
@@ -96,9 +97,10 @@ public class EnrichedParser {
     String normalizedBlockQuote =
         normalizedCodeBlock.replaceAll("</blockquote>\\n<br>", "</blockquote>");
 
-    // Replace empty <p> tags with <br>, except when they carry text-align
+    // Replace empty <p> tags with <br>, except when they carry text-align, indent or bullet
     String normalizedHtml =
-        normalizedBlockQuote.replaceAll("<p(?![^>]*text-align\\s*:)[^>]*></p>", "<br>");
+        normalizedBlockQuote.replaceAll(
+            "<p(?![^>]*(?:text-align\\s*:|data-indent|data-bullet))[^>]*></p>", "<br>");
 
     return "<html>\n" + normalizedHtml + "</html>";
   }
@@ -153,6 +155,17 @@ public class EnrichedParser {
     String cssValue = spans[0].getCssValue();
     if (cssValue.equals("auto")) return "";
     return " style=\"text-align: " + cssValue + "\"";
+  }
+
+  // Same attribute order the iOS editor writes, so a round trip leaves the markup untouched.
+  private static String getIndentAttrs(Spanned text, int start, int end) {
+    EnrichedIndentSpan[] spans = text.getSpans(start, end, EnrichedIndentSpan.class);
+    if (spans.length == 0) return "";
+    EnrichedIndentSpan span = spans[0];
+    StringBuilder attrs = new StringBuilder();
+    if (span.getLevel() > 0) attrs.append(" data-indent=\"").append(span.getLevel()).append("\"");
+    if (span.isBullet()) attrs.append(" data-bullet=\"true\"");
+    return attrs.toString();
   }
 
   private static String getBlockTag(EnrichedParagraphSpan[] spans) {
@@ -254,6 +267,9 @@ public class EnrichedParser {
         // Add alignment style to non-list paragraph/heading tags
         if (!isList) {
           out.append(getAlignmentStyleAttr(text, i, next));
+        }
+        if (tagType.equals("p")) {
+          out.append(getIndentAttrs(text, i, next));
         }
 
         if (isCheckboxListItem) {
@@ -495,6 +511,24 @@ class HtmlToSpannedConverter<T> implements ContentHandler {
     return m.find() ? m.group(1).toLowerCase() : null;
   }
 
+  private static void pushIndentMark(Editable text, Attributes attributes) {
+    int level = 0;
+    String indent = attributes.getValue("", "data-indent");
+    if (indent != null) {
+      try {
+        level = Math.min(Integer.parseInt(indent.trim()), EnrichedIndentSpan.MAX_LEVEL);
+      } catch (NumberFormatException ignored) {
+        // an unreadable level reads as no indent
+      }
+    }
+    boolean bullet = attributes.getValue("", "data-bullet") != null;
+    // a bullet always sits at level 1 or deeper
+    if (bullet) level = Math.max(level, 1);
+    if (level > 0) {
+      start(text, new Indent(level, bullet));
+    }
+  }
+
   private static void pushAlignmentMark(Editable text, Attributes attributes) {
     String cssValue = parseCssAlignmentValue(attributes);
     if (cssValue != null) {
@@ -592,6 +626,7 @@ class HtmlToSpannedConverter<T> implements ContentHandler {
       isEmptyTag = true;
       startBlockElement(mSpannableStringBuilder);
       pushAlignmentMark(mSpannableStringBuilder, attributes);
+      pushIndentMark(mSpannableStringBuilder, attributes);
     } else if (tag.equalsIgnoreCase("ul")) {
       isInOrderedList = false;
       String dataType = attributes.getValue("", "data-type");
@@ -661,10 +696,11 @@ class HtmlToSpannedConverter<T> implements ContentHandler {
     } else if (tag.equalsIgnoreCase("p")) {
       boolean empty = isEmptyTag;
       Alignment pendingAlignment = empty ? getLast(mSpannableStringBuilder, Alignment.class) : null;
-      endBlockElement(mSpannableStringBuilder, mSpanFactory);
+      Indent pendingIndent = empty ? getLast(mSpannableStringBuilder, Indent.class) : null;
+      endParagraphElement(mSpannableStringBuilder, mSpanFactory, mStyle);
       // Plain empty paragraphs never reach setParagraphSpanFromMark (no ZWS).
       // Represent them as a blank line so they round-trip as <br>.
-      if (empty && pendingAlignment == null) {
+      if (empty && pendingAlignment == null && pendingIndent == null) {
         handleBr(mSpannableStringBuilder);
       }
     } else if (tag.equalsIgnoreCase("ul")) {
@@ -741,6 +777,32 @@ class HtmlToSpannedConverter<T> implements ContentHandler {
     Alignment a = getLast(text, Alignment.class);
     if (a != null) {
       setParagraphSpanFromMark(text, a, spanFactory.createAlignmentSpan(a.mCssValue));
+    }
+  }
+
+  // endBlockElement plus the paragraph's indent. Alignment and indent share one mark when
+  // both are present: each mark on an empty paragraph would append its own ZWS.
+  private static <T> void endParagraphElement(
+      Editable text, EnrichedSpanFactory<T> spanFactory, T style) {
+    Indent indent = getLast(text, Indent.class);
+    Alignment alignment = getLast(text, Alignment.class);
+    if (indent == null) {
+      endBlockElement(text, spanFactory);
+      return;
+    }
+
+    Newline n = getLast(text, Newline.class);
+    if (n != null) {
+      appendNewlines(text, n.mNumNewlines);
+      text.removeSpan(n);
+    }
+    Object indentSpan = spanFactory.createIndentSpan(indent.mLevel, indent.mBullet, style);
+    if (alignment != null) {
+      text.removeSpan(indent);
+      setParagraphSpanFromMark(
+          text, alignment, spanFactory.createAlignmentSpan(alignment.mCssValue), indentSpan);
+    } else {
+      setParagraphSpanFromMark(text, indent, indentSpan);
     }
   }
 
@@ -1187,6 +1249,16 @@ class HtmlToSpannedConverter<T> implements ContentHandler {
       mBg = bg;
       mFontSize = fontSize;
       mFontFamily = fontFamily;
+    }
+  }
+
+  private static class Indent {
+    final int mLevel;
+    final boolean mBullet;
+
+    public Indent(int level, boolean bullet) {
+      this.mLevel = level;
+      this.mBullet = bullet;
     }
   }
 

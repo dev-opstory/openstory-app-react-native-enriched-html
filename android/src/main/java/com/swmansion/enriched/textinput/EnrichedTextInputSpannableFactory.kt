@@ -17,6 +17,7 @@ import com.swmansion.enriched.textinput.spans.EnrichedInputH4Span
 import com.swmansion.enriched.textinput.spans.EnrichedInputH5Span
 import com.swmansion.enriched.textinput.spans.EnrichedInputH6Span
 import com.swmansion.enriched.textinput.spans.EnrichedInputImageSpan
+import com.swmansion.enriched.textinput.spans.EnrichedInputIndentSpan
 import com.swmansion.enriched.textinput.spans.EnrichedInputInlineCodeSpan
 import com.swmansion.enriched.textinput.spans.EnrichedInputItalicSpan
 import com.swmansion.enriched.textinput.spans.EnrichedInputLinkSpan
@@ -32,6 +33,12 @@ class EnrichedTextInputSpannableFactory(
   private val allowFontScaling: Boolean,
 ) : EnrichedSpanFactory<HtmlStyle> {
   override fun createAlignmentSpan(cssValue: String) = EnrichedInputAlignmentSpan(cssValue)
+
+  override fun createIndentSpan(
+    level: Int,
+    isBullet: Boolean,
+    style: HtmlStyle,
+  ) = EnrichedInputIndentSpan(level, isBullet, style)
 
   override fun createBoldSpan(style: HtmlStyle) = EnrichedInputBoldSpan(style)
 
