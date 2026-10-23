@@ -4,7 +4,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.text.Layout
 import android.text.Spanned
+import android.text.TextPaint
 import android.text.style.LeadingMarginSpan
+import android.text.style.MetricAffectingSpan
 import com.facebook.react.uimanager.PixelUtil
 import com.swmansion.enriched.common.EnrichedStyle
 import com.swmansion.enriched.common.spans.interfaces.EnrichedZeroWidthSpaceSpan
@@ -20,9 +22,17 @@ open class EnrichedIndentSpan(
   val level: Int,
   val isBullet: Boolean,
   private val enrichedStyle: EnrichedStyle,
-) : LeadingMarginSpan,
+) : MetricAffectingSpan(),
+  LeadingMarginSpan,
   EnrichedZeroWidthSpaceSpan {
   private val unitPx = PixelUtil.toPixelFromDIP(INDENT_UNIT_DP)
+
+  // No metrics change, but only a metric-affecting span makes the layout re-wrap the
+  // paragraph when it is added or removed. A bare LeadingMarginSpan left the old line
+  // breaks in place, so indented text ran past the right edge.
+  override fun updateMeasureState(textPaint: TextPaint) {}
+
+  override fun updateDrawState(textPaint: TextPaint?) {}
 
   override fun getLeadingMargin(first: Boolean): Int = if (first || isBullet) (level * unitPx).roundToInt() else 0
 
