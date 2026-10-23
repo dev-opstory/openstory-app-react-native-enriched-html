@@ -86,7 +86,11 @@ class EnrichedTextWatcher(
     view.customStyles?.afterTextChanged(s, startCursorPosition, endCursorPosition)
     view.paragraphStyles?.afterTextChanged(s, endCursorPosition, previousTextLength)
     view.listStyles?.afterTextChanged(s, endCursorPosition, previousTextLength)
-    view.alignmentStyles?.afterTextChanged(s, endCursorPosition, deletedText, anchorAlignmentToRestore)
+    // A deleted indent anchor is the indent's to handle: alignment's own ZWS backspace would
+    // join the line to a centred one above.
+    if (deletedIndentAnchor == null) {
+      view.alignmentStyles?.afterTextChanged(s, endCursorPosition, deletedText, anchorAlignmentToRestore)
+    }
     view.indentStyles?.afterTextChanged(s, startCursorPosition, endCursorPosition, deletedText, deletedIndentAnchor)
     view.shortcutsHandler?.afterTextChanged(s, endCursorPosition, previousTextLength)
     view.parametrizedStyles?.afterTextChanged(s, startCursorPosition, endCursorPosition)
