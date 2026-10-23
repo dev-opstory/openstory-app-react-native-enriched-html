@@ -2069,6 +2069,11 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
 - (bool)textView:(UITextView *)textView
     shouldChangeTextInRange:(NSRange)range
             replacementText:(NSString *)text {
+  // Typed text must carry the styles the caret had; see
+  // restoreTypingAttributesDroppedBySystem.
+  if (text.length > 0) {
+    [attributesManager restoreTypingAttributesDroppedBySystem];
+  }
   // Capture the attributes at range.location that are being replaced
   // (autocorrect / predictive) so didProcessEditing: can re-stamp them onto the
   // replacement. Skip pure deletions (text.length == 0) — there is no incoming

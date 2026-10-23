@@ -151,6 +151,7 @@ static NSString *const AutomaticLinkAttributeName = @"EnrichedAutomaticLink";
   [newTypingAttrs removeObjectForKey:ManualLinkAttributeName];
   [newTypingAttrs removeObjectForKey:AutomaticLinkAttributeName];
   self.host.textView.typingAttributes = newTypingAttrs;
+  [self.host.attributesManager rememberTypingAttributes];
 
   [self.host.attributesManager
       didRemoveTypingAttribute:ManualLinkAttributeName];

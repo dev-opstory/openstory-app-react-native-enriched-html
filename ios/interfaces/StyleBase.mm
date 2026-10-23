@@ -179,6 +179,7 @@
   }
 
   self.host.textView.typingAttributes = newTypingAttrs;
+  [self.host.attributesManager rememberTypingAttributes];
 }
 
 - (void)removeTyping {
@@ -201,6 +202,7 @@
   }
 
   self.host.textView.typingAttributes = newTypingAttrs;
+  [self.host.attributesManager rememberTypingAttributes];
 }
 
 // custom styles (e.g. ImageStyle, MentionStyle) will likely need to override

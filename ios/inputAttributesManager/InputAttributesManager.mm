@@ -13,6 +13,8 @@
   NSMutableArray<NSValue *> *_dirtyRanges;
   NSSet *_customAttributesKeys;
   NSMutableSet *_removedTypingAttributes;
+  NSDictionary *_rememberedCustomTyping;
+  NSUInteger _rememberedLocation;
 }
 
 - (instancetype)initWithInput:(EnrichedTextInputView *)input {
@@ -20,6 +22,7 @@
   _input = input;
   _dirtyRanges = [[NSMutableArray alloc] init];
   _removedTypingAttributes = [[NSMutableSet alloc] init];
+  _rememberedLocation = NSNotFound;
 
   // setup customAttributes
   NSMutableSet *_customAttrsSet = [[NSMutableSet alloc] init];
@@ -53,6 +56,52 @@
                                     changeInLength:delta];
   _dirtyRanges =
       [[RangeUtils connectAndDedupeRanges:shiftedRanges] mutableCopy];
+}
+
+// UIKit rebuilds typingAttributes from the character before the caret now and
+// then without a selection change (seen on iOS 26 between a tap and the first
+// keystroke), and that rebuild drops our custom meta-attributes. The typed text
+// then lost every style kept as a meta-attribute (bold, underline, large text)
+// while font-borne ones such as italic survived. We remember the custom keys we
+// last set at a collapsed caret and put back any the system dropped.
+- (void)rememberTypingAttributes {
+  UITextView *textView = _input->textView;
+  if (textView.selectedRange.length > 0) {
+    _rememberedLocation = NSNotFound;
+    return;
+  }
+  NSMutableDictionary *custom = [NSMutableDictionary dictionary];
+  for (NSString *key in textView.typingAttributes) {
+    // UIKit keeps the paragraph style; the paragraph styles manage it themselves
+    if ([key isEqualToString:NSParagraphStyleAttributeName]) {
+      continue;
+    }
+    if ([_customAttributesKeys containsObject:key]) {
+      custom[key] = textView.typingAttributes[key];
+    }
+  }
+  _rememberedCustomTyping = custom;
+  _rememberedLocation = textView.selectedRange.location;
+}
+
+- (void)restoreTypingAttributesDroppedBySystem {
+  UITextView *textView = _input->textView;
+  NSRange selection = textView.selectedRange;
+  if (selection.length > 0 || selection.location != _rememberedLocation ||
+      _rememberedCustomTyping.count == 0) {
+    return;
+  }
+  NSMutableDictionary *typing = [textView.typingAttributes mutableCopy];
+  BOOL changed = NO;
+  for (NSString *key in _rememberedCustomTyping) {
+    if (typing[key] == nil) {
+      typing[key] = _rememberedCustomTyping[key];
+      changed = YES;
+    }
+  }
+  if (changed) {
+    textView.typingAttributes = typing;
+  }
 }
 
 - (void)didRemoveTypingAttribute:(NSString *)key {
@@ -215,6 +264,7 @@
   }
 
   textView.typingAttributes = newAttrs;
+  [self rememberTypingAttributes];
 }
 
 @end

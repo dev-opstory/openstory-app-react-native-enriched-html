@@ -202,6 +202,7 @@ static NSString *const CustomStyleAttributeName = @"EnrichedCustomStyle";
           [self.host.textView.typingAttributes mutableCopy];
       newTypingAttrs[CustomStyleAttributeName] = data;
       self.host.textView.typingAttributes = newTypingAttrs;
+  [self.host.attributesManager rememberTypingAttributes];
     }
   }
 }
