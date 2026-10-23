@@ -15,6 +15,8 @@
   NSMutableSet *_removedTypingAttributes;
   NSDictionary *_rememberedCustomTyping;
   NSUInteger _rememberedLocation;
+  NSDictionary *_pinnedCustomTyping;
+  NSUInteger _pinnedLocation;
 }
 
 - (instancetype)initWithInput:(EnrichedTextInputView *)input {
@@ -23,6 +25,7 @@
   _dirtyRanges = [[NSMutableArray alloc] init];
   _removedTypingAttributes = [[NSMutableSet alloc] init];
   _rememberedLocation = NSNotFound;
+  _pinnedLocation = NSNotFound;
 
   // setup customAttributes
   NSMutableSet *_customAttrsSet = [[NSMutableSet alloc] init];
@@ -101,6 +104,56 @@
   }
   if (changed) {
     textView.typingAttributes = typing;
+  }
+}
+
+// Keyboards that rewrite the character before the caret (Vietnamese Telex
+// turns "o" + "o" into "ô", Korean composes syllables) delete it and type the
+// new one. When that character started a styled run, the caret is left after
+// unstyled text and the typing attributes are rebuilt from it, so the
+// replacement lost the style. We keep the inline styles the caret had and hand
+// them to the next text typed at the deletion point.
+- (void)pinTypingAttributesForDeletionInRange:(NSRange)range {
+  UITextView *textView = _input->textView;
+  NSRange selection = textView.selectedRange;
+  _pinnedLocation = NSNotFound;
+  _pinnedCustomTyping = nil;
+  if (range.length == 0 || selection.length > 0 ||
+      NSMaxRange(range) != selection.location) {
+    return;
+  }
+  [self restoreTypingAttributesDroppedBySystem];
+  NSMutableDictionary *custom = [NSMutableDictionary dictionary];
+  for (NSString *key in textView.typingAttributes) {
+    if ([key isEqualToString:NSParagraphStyleAttributeName]) {
+      continue;
+    }
+    if ([_customAttributesKeys containsObject:key]) {
+      custom[key] = textView.typingAttributes[key];
+    }
+  }
+  if (custom.count > 0) {
+    _pinnedCustomTyping = custom;
+    _pinnedLocation = range.location;
+  }
+}
+
+// Adds the pinned styles while the caret still sits at the deletion point;
+// any other caret position ends the pin.
+- (void)applyPinnedTypingAttributesTo:(NSMutableDictionary *)attrs
+                             atRange:(NSRange)selectedRange {
+  if (_pinnedLocation == NSNotFound) {
+    return;
+  }
+  if (selectedRange.length > 0 || selectedRange.location != _pinnedLocation) {
+    _pinnedLocation = NSNotFound;
+    _pinnedCustomTyping = nil;
+    return;
+  }
+  for (NSString *key in _pinnedCustomTyping) {
+    if (attrs[key] == nil && ![_removedTypingAttributes containsObject:key]) {
+      attrs[key] = _pinnedCustomTyping[key];
+    }
   }
 }
 
@@ -199,6 +252,10 @@
 
       [ParagraphAttributesUtils resetTypingAttributes:_input
                                   preservingAlignment:savedAlignment];
+      NSMutableDictionary *resetAttrs = [textView.typingAttributes mutableCopy];
+      [self applyPinnedTypingAttributesTo:resetAttrs atRange:selectedRange];
+      textView.typingAttributes = resetAttrs;
+      [self rememberTypingAttributes];
       return;
     }
   }
@@ -262,6 +319,8 @@
       [style applyStylingToTypingAttrs:newAttrs];
     }
   }
+
+  [self applyPinnedTypingAttributesTo:newAttrs atRange:selectedRange];
 
   textView.typingAttributes = newAttrs;
   [self rememberTypingAttributes];

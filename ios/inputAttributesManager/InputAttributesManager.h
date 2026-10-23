@@ -17,4 +17,5 @@
 - (NSSet<NSString *> *)customAttributesKeys;
 - (void)rememberTypingAttributes;
 - (void)restoreTypingAttributesDroppedBySystem;
+- (void)pinTypingAttributesForDeletionInRange:(NSRange)range;
 @end

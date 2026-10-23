@@ -2073,6 +2073,8 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   // restoreTypingAttributesDroppedBySystem.
   if (text.length > 0) {
     [attributesManager restoreTypingAttributesDroppedBySystem];
+  } else {
+    [attributesManager pinTypingAttributesForDeletionInRange:range];
   }
   // Capture the attributes at range.location that are being replaced
   // (autocorrect / predictive) so didProcessEditing: can re-stamp them onto the
@@ -2301,16 +2303,15 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   if ((editedMask & NSTextStorageEditedCharacters) != 0) {
     // Re-stamp custom meta-attributes captured in shouldChangeTextInRange: onto
     // the new range so autocorrect/predictive replacements keep their styling.
+    // IME compositions (Korean, Vietnamese) replace their marked text on every
+    // keystroke, so they need the re-stamp too: nothing re-stamps on commit.
     if (_capturedAttributesBeforeChange != nil) {
-      // Skip while an IME composition is in progress; restamp on commit.
-      if (textView.markedTextRange == nil) {
-        NSSet *customKeys = [attributesManager customAttributesKeys];
-        for (NSString *key in _capturedAttributesBeforeChange) {
-          if ([customKeys containsObject:key]) {
-            [textStorage addAttribute:key
-                                value:_capturedAttributesBeforeChange[key]
-                                range:editedRange];
-          }
+      NSSet *customKeys = [attributesManager customAttributesKeys];
+      for (NSString *key in _capturedAttributesBeforeChange) {
+        if ([customKeys containsObject:key]) {
+          [textStorage addAttribute:key
+                              value:_capturedAttributesBeforeChange[key]
+                              range:editedRange];
         }
       }
 
