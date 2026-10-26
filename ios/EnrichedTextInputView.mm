@@ -62,6 +62,9 @@ using namespace facebook::react;
   NSArray<NSDictionary *> *_contextMenuItems;
   NSString *_submitBehavior;
   NSDictionary<NSAttributedStringKey, id> *_capturedAttributesBeforeChange;
+  // Custom attributes of the char before the caret, captured on every insert.
+  NSDictionary<NSAttributedStringKey, id> *_capturedPreviousCharAttributes;
+  NSUInteger _capturedPreviousCharLocation;
   NSString *_recentlyEmittedAlignment;
   CustomStyleData *_recentlyEmittedCustomStyle;
 }
@@ -2087,6 +2090,19 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
                                  effectiveRange:NULL];
   }
 
+  // IME composition (Korean, Vietnamese Telex) is not marked text: after this
+  // callback UIKit deletes the previous char and inserts the composed one in
+  // its place, without calling this method again. Remember what the previous
+  // char looked like so didProcessEditing: can give it to the composed char.
+  _capturedPreviousCharAttributes = nil;
+  if (range.length == 0 && text.length > 0 && range.location > 0 &&
+      range.location <= textView.textStorage.length) {
+    _capturedPreviousCharAttributes =
+        [textView.textStorage attributesAtIndex:range.location - 1
+                                 effectiveRange:NULL];
+    _capturedPreviousCharLocation = range.location - 1;
+  }
+
   // Check if the user pressed "Enter"
   if ([text isEqualToString:@"\n"]) {
     const bool shouldSubmit = [self textInputShouldSubmitOnReturn];
@@ -2317,6 +2333,25 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
 
       // Clear after consuming
       _capturedAttributesBeforeChange = nil;
+    }
+    // UIKit rewrote the char before the caret (IME composition): the composed
+    // char lands where the previous one was and arrives without our styles.
+    if (_capturedPreviousCharAttributes != nil && delta > 0 &&
+        editedRange.location == _capturedPreviousCharLocation) {
+      NSSet *customKeys = [attributesManager customAttributesKeys];
+      for (NSString *key in _capturedPreviousCharAttributes) {
+        if ([customKeys containsObject:key] &&
+            [textStorage attribute:key
+                           atIndex:editedRange.location
+                    effectiveRange:NULL] == nil) {
+          [textStorage addAttribute:key
+                              value:_capturedPreviousCharAttributes[key]
+                              range:editedRange];
+        }
+      }
+    }
+    if (delta > 0) {
+      _capturedPreviousCharAttributes = nil;
     }
     // Always try shifting dirty ranges (happens only with delta != 0).
     [attributesManager shiftDirtyRangesWithEditedRange:editedRange
