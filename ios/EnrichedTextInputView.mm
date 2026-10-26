@@ -42,6 +42,8 @@ using namespace facebook::react;
 
 @end
 
+static const NSUInteger kIMEWindow = 8;
+
 @implementation EnrichedTextInputView {
   EnrichedTextInputViewShadowNode::ConcreteState::Shared _state;
   int _componentViewHeightUpdateCounter;
@@ -62,9 +64,10 @@ using namespace facebook::react;
   NSArray<NSDictionary *> *_contextMenuItems;
   NSString *_submitBehavior;
   NSDictionary<NSAttributedStringKey, id> *_capturedAttributesBeforeChange;
-  // Custom attributes of the char before the caret, captured on every insert.
-  NSDictionary<NSAttributedStringKey, id> *_capturedPreviousCharAttributes;
-  NSUInteger _capturedPreviousCharLocation;
+  // Attributes of the few chars before the caret, captured on every insert.
+  NSArray<NSDictionary<NSAttributedStringKey, id> *> *_capturedPrecedingChars;
+  NSUInteger _capturedPrecedingStart;
+  NSUInteger _capturedInsertLocation;
   NSString *_recentlyEmittedAlignment;
   CustomStyleData *_recentlyEmittedCustomStyle;
 }
@@ -2091,16 +2094,24 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   }
 
   // IME composition (Korean, Vietnamese Telex) is not marked text: after this
-  // callback UIKit deletes the previous char and inserts the composed one in
-  // its place, without calling this method again. Remember what the previous
-  // char looked like so didProcessEditing: can give it to the composed char.
-  _capturedPreviousCharAttributes = nil;
+  // callback UIKit deletes the chars of the syllable being composed (one for
+  // Korean, up to a few for a Telex tone key: "vai" + "x" -> "vãi") and inserts
+  // the composed ones in their place, without calling this method again.
+  // Remember how those chars looked so didProcessEditing: can give the same
+  // attributes to what lands there.
+  _capturedPrecedingChars = nil;
   if (range.length == 0 && text.length > 0 && range.location > 0 &&
       range.location <= textView.textStorage.length) {
-    _capturedPreviousCharAttributes =
-        [textView.textStorage attributesAtIndex:range.location - 1
-                                 effectiveRange:NULL];
-    _capturedPreviousCharLocation = range.location - 1;
+    const NSUInteger start =
+        range.location > kIMEWindow ? range.location - kIMEWindow : 0;
+    NSMutableArray *chars = [NSMutableArray array];
+    for (NSUInteger i = start; i < range.location; i++) {
+      [chars addObject:[textView.textStorage attributesAtIndex:i
+                                                effectiveRange:NULL]];
+    }
+    _capturedPrecedingChars = chars;
+    _capturedPrecedingStart = start;
+    _capturedInsertLocation = range.location;
   }
 
   // Check if the user pressed "Enter"
@@ -2334,24 +2345,30 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
       // Clear after consuming
       _capturedAttributesBeforeChange = nil;
     }
-    // UIKit rewrote the char before the caret (IME composition): the composed
-    // char lands where the previous one was and arrives without our styles.
-    if (_capturedPreviousCharAttributes != nil && delta > 0 &&
-        editedRange.location == _capturedPreviousCharLocation) {
+    // UIKit rewrote the chars before the caret (IME composition): the composed
+    // chars land where the old ones were and arrive without our styles.
+    if (_capturedPrecedingChars != nil && delta > 0 &&
+        editedRange.location >= _capturedPrecedingStart &&
+        editedRange.location < _capturedInsertLocation) {
       NSSet *customKeys = [attributesManager customAttributesKeys];
-      for (NSString *key in _capturedPreviousCharAttributes) {
-        if ([customKeys containsObject:key] &&
-            [textStorage attribute:key
-                           atIndex:editedRange.location
-                    effectiveRange:NULL] == nil) {
-          [textStorage addAttribute:key
-                              value:_capturedPreviousCharAttributes[key]
-                              range:editedRange];
+      for (NSUInteger i = editedRange.location; i < NSMaxRange(editedRange);
+           i++) {
+        // Composed chars map onto the replaced ones by position; extra chars
+        // inherit from the last replaced one.
+        const NSUInteger src =
+            MIN(i, _capturedInsertLocation - 1) - _capturedPrecedingStart;
+        NSDictionary *old = _capturedPrecedingChars[src];
+        for (NSString *key in old) {
+          if ([customKeys containsObject:key] &&
+              [textStorage attribute:key atIndex:i effectiveRange:NULL] ==
+                  nil) {
+            [textStorage addAttribute:key value:old[key] range:NSMakeRange(i, 1)];
+          }
         }
       }
     }
     if (delta > 0) {
-      _capturedPreviousCharAttributes = nil;
+      _capturedPrecedingChars = nil;
     }
     // Always try shifting dirty ranges (happens only with delta != 0).
     [attributesManager shiftDirtyRangesWithEditedRange:editedRange
