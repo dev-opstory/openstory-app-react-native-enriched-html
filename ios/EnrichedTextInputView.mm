@@ -42,7 +42,7 @@ using namespace facebook::react;
 
 @end
 
-static const NSUInteger kIMEWindow = 8;
+static const NSUInteger kIMEWindow = 32;
 
 @implementation EnrichedTextInputView {
   EnrichedTextInputViewShadowNode::ConcreteState::Shared _state;
@@ -64,10 +64,11 @@ static const NSUInteger kIMEWindow = 8;
   NSArray<NSDictionary *> *_contextMenuItems;
   NSString *_submitBehavior;
   NSDictionary<NSAttributedStringKey, id> *_capturedAttributesBeforeChange;
-  // Attributes of the few chars before the caret, captured on every insert.
+  // Attributes of the chars right before the edit the user is making, captured
+  // on every keystroke (see shouldChangeTextInRange:).
   NSArray<NSDictionary<NSAttributedStringKey, id> *> *_capturedPrecedingChars;
   NSUInteger _capturedPrecedingStart;
-  NSUInteger _capturedInsertLocation;
+  NSUInteger _capturedPrecedingEnd;
   NSString *_recentlyEmittedAlignment;
   CustomStyleData *_recentlyEmittedCustomStyle;
 }
@@ -2093,25 +2094,26 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
                                  effectiveRange:NULL];
   }
 
-  // IME composition (Korean, Vietnamese Telex) is not marked text: after this
-  // callback UIKit deletes the chars of the syllable being composed (one for
-  // Korean, up to a few for a Telex tone key: "vai" + "x" -> "vãi") and inserts
-  // the composed ones in their place, without calling this method again.
-  // Remember how those chars looked so didProcessEditing: can give the same
-  // attributes to what lands there.
+  // IME composition (Korean, Vietnamese Telex) is not marked text. After this
+  // callback UIKit rewrites text before the caret on its own (deletes the
+  // syllable being composed and inserts the composed one, e.g. "vai" + "x" ->
+  // "vãi", or "개" -> "가" on backspace) without calling this method again, so
+  // the rewritten chars arrive without our styles. Snapshot what the text
+  // before this edit looks like, whatever the key was, and let
+  // didProcessEditing: give it back to anything rewritten inside that window.
+  // Cleared in textViewDidChange: once the user's edit has fully landed.
   _capturedPrecedingChars = nil;
-  if (range.length == 0 && text.length > 0 && range.location > 0 &&
-      range.location <= textView.textStorage.length) {
-    const NSUInteger start =
-        range.location > kIMEWindow ? range.location - kIMEWindow : 0;
+  const NSUInteger windowEnd = MIN(NSMaxRange(range), textView.textStorage.length);
+  if (windowEnd > 0) {
+    const NSUInteger start = windowEnd > kIMEWindow ? windowEnd - kIMEWindow : 0;
     NSMutableArray *chars = [NSMutableArray array];
-    for (NSUInteger i = start; i < range.location; i++) {
+    for (NSUInteger i = start; i < windowEnd; i++) {
       [chars addObject:[textView.textStorage attributesAtIndex:i
                                                 effectiveRange:NULL]];
     }
     _capturedPrecedingChars = chars;
     _capturedPrecedingStart = start;
-    _capturedInsertLocation = range.location;
+    _capturedPrecedingEnd = windowEnd;
   }
 
   // Check if the user pressed "Enter"
@@ -2223,6 +2225,7 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
 // link or starting mention with indicator doesn't fire it) so all the logic is
 // in anyTextMayHaveBeenModified
 - (void)textViewDidChange:(UITextView *)textView {
+  _capturedPrecedingChars = nil;
   [self anyTextMayHaveBeenModified];
 }
 
@@ -2345,18 +2348,18 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
       // Clear after consuming
       _capturedAttributesBeforeChange = nil;
     }
-    // UIKit rewrote the chars before the caret (IME composition): the composed
-    // chars land where the old ones were and arrive without our styles.
-    if (_capturedPrecedingChars != nil && delta > 0 &&
+    // UIKit rewrote chars inside the window captured before the user's edit
+    // (IME composition): they land where the old ones were and arrive without
+    // our styles, so hand the old ones' back, matched by position.
+    if (_capturedPrecedingChars != nil && editedRange.length > 0 &&
         editedRange.location >= _capturedPrecedingStart &&
-        editedRange.location < _capturedInsertLocation) {
+        editedRange.location < _capturedPrecedingEnd) {
       NSSet *customKeys = [attributesManager customAttributesKeys];
       for (NSUInteger i = editedRange.location; i < NSMaxRange(editedRange);
            i++) {
-        // Composed chars map onto the replaced ones by position; extra chars
-        // inherit from the last replaced one.
+        // Extra chars inherit from the last replaced one.
         const NSUInteger src =
-            MIN(i, _capturedInsertLocation - 1) - _capturedPrecedingStart;
+            MIN(i, _capturedPrecedingEnd - 1) - _capturedPrecedingStart;
         NSDictionary *old = _capturedPrecedingChars[src];
         for (NSString *key in old) {
           if ([customKeys containsObject:key] &&
@@ -2366,9 +2369,6 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
           }
         }
       }
-    }
-    if (delta > 0) {
-      _capturedPrecedingChars = nil;
     }
     // Always try shifting dirty ranges (happens only with delta != 0).
     [attributesManager shiftDirtyRangesWithEditedRange:editedRange
