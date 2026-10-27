@@ -161,6 +161,26 @@ class InlineStyles(
     setAndMergeSpans(spannable, type, start, end)
   }
 
+  /**
+   * Put [name] back over a range the IME rewrote without changing its characters. Unlike
+   * [applyStyleOnRange] it is idempotent and never toggles.
+   */
+  fun restoreStyleOnRange(
+    name: String,
+    start: Int,
+    end: Int,
+  ) {
+    val config = EnrichedSpans.inlineSpans[name] ?: return
+    val spannable = view.text as Spannable
+    val (safeStart, safeEnd) = spannable.getSafeSpanBoundaries(start, end)
+    if (safeStart >= safeEnd) return
+    val covered =
+      spannable.getSpans(safeStart, safeEnd, config.clazz).any {
+        spannable.getSpanStart(it) <= safeStart && spannable.getSpanEnd(it) >= safeEnd
+      }
+    if (!covered) setSpan(spannable, config.clazz, safeStart, safeEnd)
+  }
+
   fun toggleStyle(name: String) {
     if (view.selection == null) return
     val (start, end) = view.selection.getInlineSelection()

@@ -60,6 +60,17 @@ class CustomStyles(
     }
   }
 
+  /** Put [style] back over a range the IME rewrote without changing its characters. */
+  fun restoreStyleOnRange(
+    start: Int,
+    end: Int,
+    style: CustomStyle,
+  ) {
+    val spannable = view.text as Spannable
+    if (start >= end || end > spannable.length) return
+    applyCustomStyleSpan(spannable, start, end) { style }
+  }
+
   private fun applyCustomStyleSpan(
     spannable: Spannable,
     start: Int,
