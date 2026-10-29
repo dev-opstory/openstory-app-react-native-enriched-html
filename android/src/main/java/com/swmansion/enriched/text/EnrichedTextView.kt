@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
+import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.os.Build
 import android.text.Spannable
@@ -85,6 +86,12 @@ class EnrichedTextView : AppCompatTextView {
   private fun prepareComponent() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
+    }
+
+    // Some devices (Samsung, Korean locale) default to phrase-based breaking, which moves whole
+    // Korean words to the next line. Break between syllables like iOS; MeasurementStore matches.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
     }
 
     setPadding(0, 0, 0, 0)

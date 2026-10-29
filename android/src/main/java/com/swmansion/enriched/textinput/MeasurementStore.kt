@@ -2,6 +2,7 @@ package com.swmansion.enriched.textinput
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.text.LineBreakConfig
 import android.graphics.text.LineBreaker
 import android.os.Build
 import android.text.Spannable
@@ -113,6 +114,15 @@ object MeasurementStore {
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       builder.setBreakStrategy(LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      builder.setLineBreakConfig(
+        LineBreakConfig
+          .Builder()
+          .setLineBreakWordStyle(LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE)
+          .build(),
+      )
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
