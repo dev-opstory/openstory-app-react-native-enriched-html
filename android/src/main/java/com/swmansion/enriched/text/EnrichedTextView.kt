@@ -26,6 +26,7 @@ import com.facebook.react.views.text.ReactTypefaceUtils.parseFontWeight
 import com.swmansion.enriched.common.EnrichedConstants
 import com.swmansion.enriched.common.EnrichedSpanFlags
 import com.swmansion.enriched.common.GumboNormalizer
+import com.swmansion.enriched.common.lineBreakSafeLocales
 import com.swmansion.enriched.common.parser.EnrichedParser
 import com.swmansion.enriched.common.pixelFromSpOrDp
 import com.swmansion.enriched.text.spans.EnrichedTextImageSpan
@@ -88,11 +89,11 @@ class EnrichedTextView : AppCompatTextView {
       breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
     }
 
-    // Some devices (Samsung, Korean locale) default to phrase-based breaking, which moves whole
-    // Korean words to the next line. Break between syllables like iOS; MeasurementStore matches.
+    // Break Korean between syllables instead of by phrase; MeasurementStore matches.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       lineBreakWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE
     }
+    textLocales = lineBreakSafeLocales()
 
     setPadding(0, 0, 0, 0)
     setFontSize(EnrichedConstants.TEXT_DEFAULT_FONT_SIZE)

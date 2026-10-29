@@ -22,6 +22,7 @@ import com.facebook.yoga.YogaMeasureOutput
 import com.swmansion.enriched.common.EnrichedConstants
 import com.swmansion.enriched.common.GumboNormalizer
 import com.swmansion.enriched.common.allowFontScalingFromProps
+import com.swmansion.enriched.common.lineBreakSafeLocales
 import com.swmansion.enriched.common.parser.EnrichedParser
 import com.swmansion.enriched.common.pixelFromSpOrDp
 import com.swmansion.enriched.textinput.spans.EnrichedLineHeightSpan
@@ -42,6 +43,7 @@ object MeasurementStore {
       TextPaint().apply {
         this.typeface = typeface
         textSize = fontSize
+        textLocales = lineBreakSafeLocales()
       }
 
     val builder =

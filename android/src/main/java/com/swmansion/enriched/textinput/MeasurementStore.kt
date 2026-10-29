@@ -18,6 +18,7 @@ import com.facebook.react.views.text.ReactTypefaceUtils.parseFontWeight
 import com.facebook.yoga.YogaMeasureMode
 import com.facebook.yoga.YogaMeasureOutput
 import com.swmansion.enriched.common.allowFontScalingFromProps
+import com.swmansion.enriched.common.lineBreakSafeLocales
 import com.swmansion.enriched.common.parser.EnrichedParser
 import com.swmansion.enriched.common.pixelFromSpOrDp
 import com.swmansion.enriched.textinput.spans.EnrichedLineHeightSpan
@@ -74,6 +75,7 @@ object MeasurementStore {
       TextPaint().apply {
         typeface = paintParams.typeface
         textSize = paintParams.fontSize
+        textLocales = lineBreakSafeLocales()
       }
 
     return measure(maxWidth, spannable, paint, hint)
@@ -241,6 +243,7 @@ object MeasurementStore {
       TextPaint().apply {
         typeface = value.paintParams.typeface
         textSize = value.paintParams.fontSize
+        textLocales = lineBreakSafeLocales()
       }
 
     val size = measure(width, value.spannable, paint, value.hint)
