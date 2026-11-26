@@ -295,9 +295,10 @@ class HashtagChips(
 
   companion object {
 
-    // `UNICODE_CHARACTER_CLASS` so `\s` covers what JS and ICU count as whitespace
-    // (no-break and ideographic spaces), not just ASCII.
-    private val TOKEN = Pattern.compile("(^|\\s)(#\\S+)", Pattern.MULTILINE or Pattern.UNICODE_CHARACTER_CLASS)
+    // Android's regex is ICU, so `\s` already covers Unicode whitespace (no-break and
+    // ideographic spaces) as on iOS and web. `UNICODE_CHARACTER_CLASS` is not supported
+    // there and throws: in this initializer it crashed every input on mount.
+    private val TOKEN = Pattern.compile("(^|\\s)(#\\S+)", Pattern.MULTILINE)
     private const val MAX_TAG_LENGTH = 100
 
     // The chip the app's post detail draws (HashtagChip), in dp.
