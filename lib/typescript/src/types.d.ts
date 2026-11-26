@@ -697,6 +697,8 @@ export interface EnrichedTextInputProps extends Omit<ViewProps, 'children'> {
      * Enabled by default.
      */
     allowFontScaling?: boolean;
+    /** OpenStory: hashtag chips while composing (decoration only). */
+    hashtagChips?: boolean;
 }
 /**
  * Imperative handle exposed via `ref` on `<EnrichedText />`.

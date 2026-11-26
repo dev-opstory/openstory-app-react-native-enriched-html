@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.BlendMode
 import android.graphics.BlendModeColorFilter
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.text.LineBreakConfig
@@ -79,6 +80,7 @@ import com.swmansion.enriched.textinput.utils.mergeSpannables
 import com.swmansion.enriched.textinput.utils.setCheckboxClickListener
 import com.swmansion.enriched.textinput.utils.zwsCountBefore
 import com.swmansion.enriched.textinput.watchers.EnrichedSpanWatcher
+import com.swmansion.enriched.textinput.utils.HashtagChips
 import com.swmansion.enriched.textinput.watchers.EnrichedTextWatcher
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
@@ -131,6 +133,11 @@ class EnrichedTextInputView :
   var linkRegex: Pattern? = Patterns.WEB_URL
   var spanWatcher: EnrichedSpanWatcher? = null
   var layoutManager: EnrichedTextInputViewLayoutManager = EnrichedTextInputViewLayoutManager(this)
+
+  // OpenStory: hashtag chips while composing a community post. Nullable like the
+  // other helpers: TextView's constructor calls onSelectionChanged before this is set.
+  val hashtagChips: HashtagChips? = HashtagChips(this)
+  private var pendingChipDelete: IntRange? = null
 
   var shouldEmitHtml: Boolean = false
   var shouldEmitOnChangeText: Boolean = false
@@ -312,7 +319,48 @@ class EnrichedTextInputView :
   }
 
   // https://github.com/facebook/react-native/blob/36df97f500aa0aa8031098caf7526db358b6ddc1/packages/react-native/ReactAndroid/src/main/java/com/facebook/react/views/textinput/ReactEditText.kt#L295C1-L296C1
+  override fun onDraw(canvas: Canvas) {
+    // Under the text: the pills of the hashtag chips.
+    hashtagChips?.draw(canvas)
+    super.onDraw(canvas)
+  }
+
+  /**
+   * A tap on a chip's delete button removes the tag and one space, the way a
+   * keyboard delete would (the text watcher runs as usual). The touch is kept
+   * from the text view so the caret and keyboard stay where they were.
+   */
+  private fun handleChipDeleteTouch(ev: MotionEvent): Boolean {
+    when (ev.actionMasked) {
+      MotionEvent.ACTION_DOWN -> {
+        pendingChipDelete = hashtagChips?.deleteRangeAt(ev.x, ev.y)
+        return pendingChipDelete != null
+      }
+
+      MotionEvent.ACTION_MOVE -> {
+        return pendingChipDelete != null
+      }
+
+      MotionEvent.ACTION_UP -> {
+        val range = pendingChipDelete ?: return false
+        pendingChipDelete = null
+        if (hashtagChips?.deleteRangeAt(ev.x, ev.y) == range) {
+          text?.delete(range.first, range.last + 1)
+        }
+        return true
+      }
+
+      MotionEvent.ACTION_CANCEL -> {
+        val wasPending = pendingChipDelete != null
+        pendingChipDelete = null
+        return wasPending
+      }
+    }
+    return false
+  }
+
   override fun onTouchEvent(ev: MotionEvent): Boolean {
+    if (handleChipDeleteTouch(ev)) return true
     when (ev.action) {
       MotionEvent.ACTION_DOWN -> {
         detectScrollMovement = true
@@ -349,6 +397,8 @@ class EnrichedTextInputView :
   ) {
     super.onSelectionChanged(selStart, selEnd)
     selection?.onSelection(selStart, selEnd)
+    // Moving the caret out of a token finishes it: it becomes a chip.
+    hashtagChips?.refresh()
   }
 
   override fun clearFocus() {
@@ -362,6 +412,7 @@ class EnrichedTextInputView :
     previouslyFocusedRect: Rect?,
   ) {
     super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    hashtagChips?.refresh()
     val context = context as ReactContext
     val surfaceId = UIManagerHelper.getSurfaceId(context)
     val dispatcher = UIManagerHelper.getEventDispatcherForReactTag(context, id)

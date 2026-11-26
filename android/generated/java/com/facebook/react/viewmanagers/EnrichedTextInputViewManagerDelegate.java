@@ -80,6 +80,9 @@ public class EnrichedTextInputViewManagerDelegate<T extends View, U extends Base
       case "allowFontScaling":
         mViewManager.setAllowFontScaling(view, value == null ? false : (boolean) value);
         break;
+      case "hashtagChips":
+        mViewManager.setHashtagChips(view, value == null ? false : (boolean) value);
+        break;
       case "color":
         mViewManager.setColor(view, ColorPropConverter.getColor(value, view.getContext()));
         break;

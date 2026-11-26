@@ -1,6 +1,8 @@
 #import "LayoutManagerExtension.h"
 #import "ColorExtension.h"
+#import "EnrichedTextInputView.h"
 #import "EnrichedViewHost.h"
+#import "HashtagChipUtils.h"
 #import "RangeUtils.h"
 #import "StyleHeaders.h"
 #import "WeakBox.h"
@@ -22,7 +24,66 @@ static void const *kInputKey = &kInputKey;
                            OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+// OpenStory: paints hashtag chip characters in the chip colour at draw time.
+// The colour lives nowhere in the text storage, so it cannot reach the HTML.
+- (void)my_showCGGlyphs:(const CGGlyph *)glyphs
+              positions:(const CGPoint *)positions
+                  count:(NSInteger)glyphCount
+                   font:(UIFont *)font
+             textMatrix:(CGAffineTransform)textMatrix
+             attributes:(NSDictionary<NSAttributedStringKey, id> *)attributes
+              inContext:(CGContextRef)context {
+  if (attributes[HashtagChipTextAttributeName] != nil) {
+    CGContextSaveGState(context);
+    CGContextSetFillColorWithColor(context,
+                                   [HashtagChipUtils chipTextColor].CGColor);
+    [self my_showCGGlyphs:glyphs
+                positions:positions
+                    count:glyphCount
+                     font:font
+               textMatrix:textMatrix
+               attributes:attributes
+                inContext:context];
+    CGContextRestoreGState(context);
+    return;
+  }
+  [self my_showCGGlyphs:glyphs
+              positions:positions
+                  count:glyphCount
+                   font:font
+             textMatrix:textMatrix
+             attributes:attributes
+              inContext:context];
+}
+
++ (void)swizzle:(SEL)originalSelector with:(SEL)swizzledSelector {
+  Class myClass = [NSLayoutManager class];
+  Method originalMethod = class_getInstanceMethod(myClass, originalSelector);
+  Method swizzledMethod = class_getInstanceMethod(myClass, swizzledSelector);
+  if (originalMethod == nullptr || swizzledMethod == nullptr) {
+    return;
+  }
+  BOOL didAddMethod = class_addMethod(myClass, originalSelector,
+                                      method_getImplementation(swizzledMethod),
+                                      method_getTypeEncoding(swizzledMethod));
+  if (didAddMethod) {
+    class_replaceMethod(myClass, swizzledSelector,
+                        method_getImplementation(originalMethod),
+                        method_getTypeEncoding(originalMethod));
+  } else {
+    method_exchangeImplementations(originalMethod, swizzledMethod);
+  }
+}
+
 + (void)load {
+  static dispatch_once_t chipOnceToken;
+  dispatch_once(&chipOnceToken, ^{
+    [self swizzle:@selector
+          (showCGGlyphs:positions:count:font:textMatrix:attributes:inContext:)
+             with:@selector
+             (my_showCGGlyphs:
+                    positions:count:font:textMatrix:attributes:inContext:)];
+  });
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
     Class myClass = [NSLayoutManager class];
@@ -61,6 +122,12 @@ static void const *kInputKey = &kInputKey;
   [self drawLists:host origin:origin visibleCharRange:visibleCharRange];
   [self drawIndentBullets:host origin:origin visibleCharRange:visibleCharRange];
   [self drawCodeBlocks:host origin:origin visibleCharRange:visibleCharRange];
+  if ([(id)host isKindOfClass:[EnrichedTextInputView class]]) {
+    [HashtagChipUtils drawChipsInInput:(EnrichedTextInputView *)host
+                         layoutManager:self
+                                origin:origin
+                      visibleCharRange:visibleCharRange];
+  }
 }
 
 - (void)drawCodeBlocks:(id<EnrichedViewHost>)host
@@ -395,12 +462,11 @@ static void const *kInputKey = &kInputKey;
                                                        level * slotWidth -
                                                        slotWidth / 2;
                                      CGFloat centerY =
-                                         CGRectGetMidY(textUsedRect) +
-                                         origin.y;
-                                     CGRect box = CGRectMake(
-                                         centerX - bulletSize / 2,
-                                         centerY - bulletSize / 2, bulletSize,
-                                         bulletSize);
+                                         CGRectGetMidY(textUsedRect) + origin.y;
+                                     CGRect box =
+                                         CGRectMake(centerX - bulletSize / 2,
+                                                    centerY - bulletSize / 2,
+                                                    bulletSize, bulletSize);
                                      CGContextRef context =
                                          UIGraphicsGetCurrentContext();
                                      CGContextSaveGState(context);
@@ -424,8 +490,7 @@ static void const *kInputKey = &kInputKey;
                                                        bulletSize * 0.1));
                                      } else {
                                        [bulletColor setFill];
-                                       CGContextFillEllipseInRect(context,
-                                                                  box);
+                                       CGContextFillEllipseInRect(context, box);
                                      }
                                      CGContextRestoreGState(context);
                                      // only the first line gets a marker

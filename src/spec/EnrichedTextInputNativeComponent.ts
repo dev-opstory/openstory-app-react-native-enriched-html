@@ -389,6 +389,8 @@ export interface NativeProps extends ViewProps {
   returnKeyLabel?: string;
   submitBehavior?: string;
   allowFontScaling?: boolean;
+  // OpenStory
+  hashtagChips?: boolean;
 
   // event callbacks
   onInputFocus?: DirectEventHandler<TargetedEvent>;

@@ -249,6 +249,15 @@ class EnrichedTextInputViewManager :
     view.allowFontScaling = allowFontScaling
   }
 
+  // OpenStory
+  @ReactProp(name = "hashtagChips", defaultBoolean = false)
+  override fun setHashtagChips(
+    view: EnrichedTextInputView,
+    value: Boolean,
+  ) {
+    view.hashtagChips?.setEnabled(value)
+  }
+
   override fun onAfterUpdateTransaction(view: EnrichedTextInputView) {
     super.onAfterUpdateTransaction(view)
     view.afterUpdateTransaction()

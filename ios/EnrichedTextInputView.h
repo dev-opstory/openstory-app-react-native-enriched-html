@@ -39,6 +39,12 @@ NS_ASSUME_NONNULL_BEGIN
   NSValue *dotReplacementRange;
 @public
   NSArray<NSDictionary *> *textShortcuts;
+@public
+  // OpenStory: hashtag chips while composing a community post
+  // (HashtagChipUtils).
+  BOOL hashtagChipsEnabled;
+@public
+  NSArray<NSDictionary *> *hashtagChips;
 }
 - (CGSize)measureSize:(CGFloat)maxWidth;
 - (void)emitOnLinkDetectedEvent:(LinkData *)linkData range:(NSRange)range;
@@ -46,6 +52,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)emitOnPasteImagesEvent:(NSArray<NSDictionary *> *)images;
 - (void)anyTextMayHaveBeenModified;
 - (void)scheduleRelayoutIfNeeded;
+- (void)refreshHashtagChips;
 
 @end
 

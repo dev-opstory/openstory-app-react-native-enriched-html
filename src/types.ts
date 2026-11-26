@@ -817,6 +817,14 @@ export interface EnrichedTextInputProps extends Omit<ViewProps, 'children'> {
    * Enabled by default.
    */
   allowFontScaling?: boolean;
+
+  /**
+   * OpenStory: draw hashtags as chips while composing (community post body). The
+   * text stays plain `#tag`; chips are decoration, so the HTML is unchanged. A
+   * token that holds the caret is still being typed and stays plain. A chip's
+   * delete button removes the tag and one space. Disabled by default.
+   */
+  hashtagChips?: boolean;
 }
 
 /**

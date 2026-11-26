@@ -38,6 +38,7 @@ EnrichedTextInputViewProps::EnrichedTextInputViewProps(
     returnKeyLabel(convertRawProp(context, rawProps, "returnKeyLabel", sourceProps.returnKeyLabel, {})),
     submitBehavior(convertRawProp(context, rawProps, "submitBehavior", sourceProps.submitBehavior, {})),
     allowFontScaling(convertRawProp(context, rawProps, "allowFontScaling", sourceProps.allowFontScaling, {false})),
+    hashtagChips(convertRawProp(context, rawProps, "hashtagChips", sourceProps.hashtagChips, {false})),
     color(convertRawProp(context, rawProps, "color", sourceProps.color, {})),
     fontSize(convertRawProp(context, rawProps, "fontSize", sourceProps.fontSize, {0.0})),
     lineHeight(convertRawProp(context, rawProps, "lineHeight", sourceProps.lineHeight, {0.0})),
@@ -135,6 +136,10 @@ folly::dynamic EnrichedTextInputViewProps::getDiffProps(
     
   if (allowFontScaling != oldProps->allowFontScaling) {
     result["allowFontScaling"] = allowFontScaling;
+  }
+    
+  if (hashtagChips != oldProps->hashtagChips) {
+    result["hashtagChips"] = hashtagChips;
   }
     
   if (color != oldProps->color) {

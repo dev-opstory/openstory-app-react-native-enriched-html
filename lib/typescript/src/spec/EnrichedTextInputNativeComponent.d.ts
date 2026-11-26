@@ -356,6 +356,7 @@ export interface NativeProps extends ViewProps {
     returnKeyLabel?: string;
     submitBehavior?: string;
     allowFontScaling?: boolean;
+    hashtagChips?: boolean;
     onInputFocus?: DirectEventHandler<TargetedEvent>;
     onInputBlur?: DirectEventHandler<TargetedEvent>;
     onChangeText?: DirectEventHandler<OnChangeTextEvent>;

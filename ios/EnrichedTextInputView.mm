@@ -1,9 +1,10 @@
 #import "EnrichedTextInputView.h"
 #import "AlignmentUtils.h"
 #import "AttachmentLayoutUtils.h"
-#import "CoreText/CoreText.h"
 #import "ColorExtension.h"
+#import "CoreText/CoreText.h"
 #import "DotReplacementUtils.h"
+#import "HashtagChipUtils.h"
 #import "HtmlParser.h"
 #import "ImageAttachment.h"
 #import "KeyboardUtils.h"
@@ -16,10 +17,10 @@
 #import "StyleUtils.h"
 #import "TextBlockTapGestureRecognizer.h"
 #import "TextInsertionUtils.h"
-#import <React/UIView+React.h>
 #import "WordsUtils.h"
 #import "ZeroWidthSpaceUtils.h"
 #import <React/RCTConversions.h>
+#import <React/UIView+React.h>
 #import <ReactNativeEnrichedHtml/EnrichedTextInputViewComponentDescriptor.h>
 #import <ReactNativeEnrichedHtml/EventEmitters.h>
 #import <ReactNativeEnrichedHtml/Props.h>
@@ -148,6 +149,8 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   blockEmitting = NO;
   _emitFocusBlur = YES;
   _emitTextChange = NO;
+  hashtagChipsEnabled = NO;
+  hashtagChips = @[];
   dotReplacementRange = nullptr;
 
   defaultTypingAttributes =
@@ -189,11 +192,12 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
         constraintEqualToAnchor:textView.widthAnchor],
     [_placeholderLabel.topAnchor constraintEqualToAnchor:textView.topAnchor]
   ]];
-  // A placeholder longer than one line wraps like typed text would — `measureSize:`
-  // grows the input to fit it. Only the top is pinned so the wrapped lines sit where
-  // the text will, instead of centred in whatever height a `minHeight` style leaves.
-  // (A one-line label clipped rather than truncated anyway: the attributed paragraph
-  // style set in `refreshPlaceholderLabelStyles` overrides the label's line break mode.)
+  // A placeholder longer than one line wraps like typed text would —
+  // `measureSize:` grows the input to fit it. Only the top is pinned so the
+  // wrapped lines sit where the text will, instead of centred in whatever
+  // height a `minHeight` style leaves. (A one-line label clipped rather than
+  // truncated anyway: the attributed paragraph style set in
+  // `refreshPlaceholderLabelStyles` overrides the label's line break mode.)
   _placeholderLabel.numberOfLines = 0;
   _placeholderLabel.lineBreakMode = NSLineBreakByWordWrapping;
   _placeholderLabel.text = @"";
@@ -779,9 +783,10 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
     if (isFirstMount && textView.text.length == 0) {
       [self setPlaceholderLabelShown:YES];
     }
-    // The placeholder is part of the measured height while it is showing, so a new one
-    // (a different length, another locale) has to be measured again. A no-op before the
-    // state exists — the first measure on `updateState` picks it up.
+    // The placeholder is part of the measured height while it is showing, so a
+    // new one (a different length, another locale) has to be measured again. A
+    // no-op before the state exists — the first measure on `updateState` picks
+    // it up.
     if (textView.textStorage.string.length == 0) {
       [self tryUpdatingHeight];
     }
@@ -845,6 +850,20 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
       [textView reactBlur];
       [textView reactFocus];
       _emitFocusBlur = YES;
+    }
+  }
+
+  // OpenStory: hashtagChips
+  if (newViewProps.hashtagChips != oldViewProps.hashtagChips) {
+    hashtagChipsEnabled = newViewProps.hashtagChips;
+    // A chip at the start of a line draws its left padding past the text's
+    // edge.
+    textView.clipsToBounds = !hashtagChipsEnabled;
+    if (hashtagChipsEnabled) {
+      [self refreshHashtagChips];
+    } else {
+      [HashtagChipUtils clearInInput:self];
+      [self tryUpdatingHeight];
     }
   }
 
@@ -983,11 +1002,12 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
                                context:nullptr];
   CGFloat height = ceil(boundingBox.size.height);
 
-  // An empty input shows the placeholder, and that wraps like any other text. RN's own
-  // `RCTUITextView` returns MAX(text, placeholder) from `sizeThatFits:` for the same
-  // reason: at one line's height every placeholder line past the first is clipped.
-  // Same attributes `refreshPlaceholderLabelStyles` draws the label with, so the
-  // measured leading is the drawn leading.
+  // An empty input shows the placeholder, and that wraps like any other text.
+  // RN's own `RCTUITextView` returns MAX(text, placeholder) from
+  // `sizeThatFits:` for the same reason: at one line's height every placeholder
+  // line past the first is clipped. Same attributes
+  // `refreshPlaceholderLabelStyles` draws the label with, so the measured
+  // leading is the drawn leading.
   if (textView.textStorage.string.length == 0 &&
       _placeholderLabel.text.length > 0) {
     NSAttributedString *placeholderStr =
@@ -1363,11 +1383,10 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
     }
 
     AlignmentStyle *alignmentStyle = stylesDict[@([AlignmentStyle getType])];
-    [alignmentStyle
-          addAlignment:alignment
-                 range:textView.selectedRange
-            withTyping:YES
-        withDirtyRange:YES];
+    [alignmentStyle addAlignment:alignment
+                           range:textView.selectedRange
+                      withTyping:YES
+                  withDirtyRange:YES];
 
     [self anyTextMayHaveBeenModified];
     if (!_placeholderLabel.isHidden) {
@@ -1879,12 +1898,30 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   // all the visible (not meta) attributes handling in the ranges that could
   // have changed
   [attributesManager handleDirtyRangesStyling];
+  // OpenStory: chip spacing changes line widths, so before the height update
+  [HashtagChipUtils refreshInInput:self];
   // update height on each character change
   [self tryUpdatingHeight];
   // update active styles as well
   [self tryUpdatingActiveStyles];
   // update drawing - schedule debounced relayout
   [self scheduleRelayoutIfNeeded];
+}
+
+/**
+ * OpenStory: re-run chip recognition where the text did not change but which
+ * token is still being typed did (caret moves, focus, blur). Chip spacing can
+ * re-wrap lines, so the height follows when the chips changed.
+ */
+- (void)refreshHashtagChips {
+  if (!hashtagChipsEnabled) {
+    return;
+  }
+  NSArray<NSDictionary *> *previous = hashtagChips;
+  [HashtagChipUtils refreshInInput:self];
+  if (![previous isEqualToArray:hashtagChips]) {
+    [self tryUpdatingHeight];
+  }
 }
 
 - (void)handlePlaceholderVisibility {
@@ -1957,6 +1994,7 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   // manage selection changes since textViewDidChangeSelection sometimes doesn't
   // run on focus
   [self manageSelectionBasedChanges];
+  [self refreshHashtagChips];
 }
 
 - (void)textViewDidEndEditing:(UITextView *)textView {
@@ -1965,6 +2003,9 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
     // send onBlur event
     emitter->onInputBlur({});
   }
+  // Nothing is being typed once the input lets go: the last token becomes a
+  // chip.
+  [self refreshHashtagChips];
 }
 
 - (UIMenu *)textView:(UITextView *)tv
@@ -2103,9 +2144,11 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   // didProcessEditing: give it back to anything rewritten inside that window.
   // Cleared in textViewDidChange: once the user's edit has fully landed.
   _capturedPrecedingChars = nil;
-  const NSUInteger windowEnd = MIN(NSMaxRange(range), textView.textStorage.length);
+  const NSUInteger windowEnd =
+      MIN(NSMaxRange(range), textView.textStorage.length);
   if (windowEnd > 0) {
-    const NSUInteger start = windowEnd > kIMEWindow ? windowEnd - kIMEWindow : 0;
+    const NSUInteger start =
+        windowEnd > kIMEWindow ? windowEnd - kIMEWindow : 0;
     NSMutableArray *chars = [NSMutableArray array];
     for (NSUInteger i = start; i < windowEnd; i++) {
       [chars addObject:[textView.textStorage attributesAtIndex:i
@@ -2219,6 +2262,7 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
 
   // manage selection changes
   [self manageSelectionBasedChanges];
+  [self refreshHashtagChips];
 }
 
 // this function isn't called always when some text changes (for example setting
@@ -2313,6 +2357,26 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
     break;
   }
 
+  case TextBlockTapKindHashtagDelete: {
+    // Through UITextInput, as a keyboard delete would go: the normal edit path
+    // then updates dirty ranges, chips, height and the emitted HTML.
+    NSRange range = gr.deleteRange;
+    if (NSMaxRange(range) <= textView.textStorage.length) {
+      UITextPosition *start =
+          [textView positionFromPosition:textView.beginningOfDocument
+                                  offset:range.location];
+      UITextPosition *end = [textView positionFromPosition:start
+                                                    offset:range.length];
+      if (start != nil && end != nil) {
+        [textView replaceRange:[textView textRangeFromPosition:start
+                                                    toPosition:end]
+                      withText:@""];
+        [self anyTextMayHaveBeenModified];
+      }
+    }
+    break;
+  }
+
   default:
     break;
   }
@@ -2363,9 +2427,11 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
         NSDictionary *old = _capturedPrecedingChars[src];
         for (NSString *key in old) {
           if ([customKeys containsObject:key] &&
-              [textStorage attribute:key atIndex:i effectiveRange:NULL] ==
-                  nil) {
-            [textStorage addAttribute:key value:old[key] range:NSMakeRange(i, 1)];
+              [textStorage attribute:key atIndex:i
+                      effectiveRange:NULL] == nil) {
+            [textStorage addAttribute:key
+                                value:old[key]
+                                range:NSMakeRange(i, 1)];
           }
         }
       }

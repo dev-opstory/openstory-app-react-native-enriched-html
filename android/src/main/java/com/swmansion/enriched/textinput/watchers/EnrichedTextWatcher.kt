@@ -157,9 +157,14 @@ class EnrichedTextWatcher(
     if (s == null) return
     emitEvents(s)
 
-    if (view.isDuringTransaction) return
+    if (view.isDuringTransaction) {
+      view.hashtagChips?.refresh()
+      return
+    }
     val inserted = s.substring(startCursorPosition.coerceAtMost(s.length), endCursorPosition.coerceAtMost(s.length))
     applyStyles(s, inserted)
+    // OpenStory: after the styles, so the chips see the final text and spans.
+    view.hashtagChips?.refresh()
     view.layoutManager.invalidateLayout()
   }
 
