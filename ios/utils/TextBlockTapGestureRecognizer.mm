@@ -1,12 +1,10 @@
 #import "TextBlockTapGestureRecognizer.h"
 #import "CheckboxHitTestUtils.h"
 #import "EnrichedTextInputView.h"
-#import "HashtagChipUtils.h"
 
 @implementation TextBlockTapGestureRecognizer {
   TextBlockTapKind _tapKind;
   NSInteger _characterIndex;
-  NSRange _deleteRange;
 }
 
 - (instancetype)initWithInput:(id)input action:(SEL)action {
@@ -32,10 +30,6 @@
   return _characterIndex;
 }
 
-- (NSRange)deleteRange {
-  return _deleteRange;
-}
-
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
   _tapKind = TextBlockTapKindNone;
   _characterIndex = NSNotFound;
@@ -53,15 +47,6 @@
   if (checkboxIndex >= 0) {
     _tapKind = TextBlockTapKindCheckbox;
     _characterIndex = checkboxIndex;
-    [super touchesBegan:touches withEvent:event];
-    return;
-  }
-
-  NSRange deleteRange = [HashtagChipUtils deleteRangeAtPoint:point
-                                                     inInput:self.input];
-  if (deleteRange.location != NSNotFound) {
-    _tapKind = TextBlockTapKindHashtagDelete;
-    _deleteRange = deleteRange;
     [super touchesBegan:touches withEvent:event];
     return;
   }

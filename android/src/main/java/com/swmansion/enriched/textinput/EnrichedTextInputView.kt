@@ -137,7 +137,6 @@ class EnrichedTextInputView :
   // OpenStory: hashtag chips while composing a community post. Nullable like the
   // other helpers: TextView's constructor calls onSelectionChanged before this is set.
   val hashtagChips: HashtagChips? = HashtagChips(this)
-  private var pendingChipDelete: IntRange? = null
 
   var shouldEmitHtml: Boolean = false
   var shouldEmitOnChangeText: Boolean = false
@@ -325,42 +324,7 @@ class EnrichedTextInputView :
     super.onDraw(canvas)
   }
 
-  /**
-   * A tap on a chip's delete button removes the tag and one space, the way a
-   * keyboard delete would (the text watcher runs as usual). The touch is kept
-   * from the text view so the caret and keyboard stay where they were.
-   */
-  private fun handleChipDeleteTouch(ev: MotionEvent): Boolean {
-    when (ev.actionMasked) {
-      MotionEvent.ACTION_DOWN -> {
-        pendingChipDelete = hashtagChips?.deleteRangeAt(ev.x, ev.y)
-        return pendingChipDelete != null
-      }
-
-      MotionEvent.ACTION_MOVE -> {
-        return pendingChipDelete != null
-      }
-
-      MotionEvent.ACTION_UP -> {
-        val range = pendingChipDelete ?: return false
-        pendingChipDelete = null
-        if (hashtagChips?.deleteRangeAt(ev.x, ev.y) == range) {
-          text?.delete(range.first, range.last + 1)
-        }
-        return true
-      }
-
-      MotionEvent.ACTION_CANCEL -> {
-        val wasPending = pendingChipDelete != null
-        pendingChipDelete = null
-        return wasPending
-      }
-    }
-    return false
-  }
-
   override fun onTouchEvent(ev: MotionEvent): Boolean {
-    if (handleChipDeleteTouch(ev)) return true
     when (ev.action) {
       MotionEvent.ACTION_DOWN -> {
         detectScrollMovement = true

@@ -47,6 +47,8 @@ static const NSUInteger kIMEWindow = 32;
 
 @implementation EnrichedTextInputView {
   EnrichedTextInputViewShadowNode::ConcreteState::Shared _state;
+  // OpenStory: the layout manager holds its delegate weakly.
+  HashtagChipLayoutDelegate *_hashtagChipLayoutDelegate;
   int _componentViewHeightUpdateCounter;
   NSMutableSet<NSNumber *> *_activeStyles;
   NSMutableSet<NSNumber *> *_blockedStyles;
@@ -856,12 +858,15 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
   // OpenStory: hashtagChips
   if (newViewProps.hashtagChips != oldViewProps.hashtagChips) {
     hashtagChipsEnabled = newViewProps.hashtagChips;
-    // A chip at the start of a line draws its left padding past the text's
-    // edge.
-    textView.clipsToBounds = !hashtagChipsEnabled;
     if (hashtagChipsEnabled) {
+      if (_hashtagChipLayoutDelegate == nil) {
+        _hashtagChipLayoutDelegate = [HashtagChipLayoutDelegate new];
+        _hashtagChipLayoutDelegate.input = self;
+      }
+      textView.layoutManager.delegate = _hashtagChipLayoutDelegate;
       [self refreshHashtagChips];
     } else {
+      textView.layoutManager.delegate = nil;
       [HashtagChipUtils clearInInput:self];
       [self tryUpdatingHeight];
     }
@@ -2353,26 +2358,6 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
       // Without this, the cursor may remain at its previous position,
       // potentially inside a different checkbox line.
       textView.selectedRange = NSMakeRange(endOfLineIndex, 0);
-    }
-    break;
-  }
-
-  case TextBlockTapKindHashtagDelete: {
-    // Through UITextInput, as a keyboard delete would go: the normal edit path
-    // then updates dirty ranges, chips, height and the emitted HTML.
-    NSRange range = gr.deleteRange;
-    if (NSMaxRange(range) <= textView.textStorage.length) {
-      UITextPosition *start =
-          [textView positionFromPosition:textView.beginningOfDocument
-                                  offset:range.location];
-      UITextPosition *end = [textView positionFromPosition:start
-                                                    offset:range.length];
-      if (start != nil && end != nil) {
-        [textView replaceRange:[textView textRangeFromPosition:start
-                                                    toPosition:end]
-                      withText:@""];
-        [self anyTextMayHaveBeenModified];
-      }
     }
     break;
   }

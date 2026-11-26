@@ -9,12 +9,14 @@ NS_ASSUME_NONNULL_BEGIN
  * OpenStory: hashtags in a community post body drawn as chips while composing.
  *
  * Decoration only. The text stays plain `#tag`, so the HTML the input emits is
- * unchanged: the chip is a pill drawn behind the token, a render-only text
- * colour (a marker attribute the layout manager paints, see
- * LayoutManagerExtension), and `NSKern` on the characters
- * either side to make room for the pill's padding and its delete button. That
- * kern carries `HashtagChipKernAttributeName` so it can be told apart from the
- * epsilon kern ZeroWidthSpaceUtils puts on zero-width spaces.
+ * unchanged. The chip looks like the one the app's post detail draws: a pill
+ * behind the token, the tag in a 14pt medium font, its line 30pt tall with the
+ * text centred. Font, paragraph style and baseline offset are swapped on the
+ * token's characters with the originals saved under marker keys, the colour
+ * is painted at draw time from a marker the parser ignores, and `NSKern` on the
+ * characters either side makes room for the padding. That kern carries
+ * `HashtagChipKernAttributeName` so it can be told apart from the epsilon kern
+ * ZeroWidthSpaceUtils puts on zero-width spaces.
  *
  * Recognition matches the server's (openstory-web rich-text-core): a `#` at the
  * start of a line or after whitespace, then everything up to the next
@@ -27,6 +29,16 @@ extern NSAttributedStringKey const HashtagChipKernAttributeName;
  * `chipTextColor`. */
 extern NSAttributedStringKey const HashtagChipTextAttributeName;
 
+/**
+ * Moves a line that starts with a chip right by the chip's left padding, so the
+ * pill begins at the text's edge with the `#` inside it, as in the post detail.
+ * Kern cannot do it: it widens the character before the chip, and a line start
+ * has none. Set as the input's layout manager delegate while chips are on.
+ */
+@interface HashtagChipLayoutDelegate : NSObject <NSLayoutManagerDelegate>
+@property(nonatomic, weak) EnrichedTextInputView *input;
+@end
+
 @interface HashtagChipUtils : NSObject
 
 + (UIColor *)chipTextColor;
@@ -38,20 +50,11 @@ extern NSAttributedStringKey const HashtagChipTextAttributeName;
 /** Removes every chip attribute, for when the prop is switched off. */
 + (void)clearInInput:(EnrichedTextInputView *)input;
 
-/** Draws the pills (and their delete buttons) that intersect
- * `visibleCharRange`. */
+/** Draws the pills that intersect `visibleCharRange`. */
 + (void)drawChipsInInput:(EnrichedTextInputView *)input
            layoutManager:(NSLayoutManager *)layoutManager
                   origin:(CGPoint)origin
         visibleCharRange:(NSRange)visibleCharRange;
-
-/**
- * The character range to delete when `point` (text view coordinates) hits a
- * chip's delete button: the token plus one adjacent space. `NSNotFound`
- * location when nothing was hit.
- */
-+ (NSRange)deleteRangeAtPoint:(CGPoint)point
-                      inInput:(EnrichedTextInputView *)input;
 
 @end
 

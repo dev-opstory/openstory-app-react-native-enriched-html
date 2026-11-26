@@ -6,23 +6,25 @@ NSAttributedStringKey const HashtagChipKernAttributeName =
     @"EnrichedHashtagChipKern";
 NSAttributedStringKey const HashtagChipTextAttributeName =
     @"EnrichedHashtagChipText";
+// What a chip replaced, kept so it can be put back when the chip goes away.
+static NSAttributedStringKey const kOriginalFontKey =
+    @"EnrichedHashtagChipOriginalFont";
+static NSAttributedStringKey const kOriginalParagraphStyleKey =
+    @"EnrichedHashtagChipOriginalParagraphStyle";
+static NSAttributedStringKey const kOriginalBaselineKey =
+    @"EnrichedHashtagChipOriginalBaseline";
 
-// Web's editor chip (openstory-web rich-text-view + hashtagChipEditing), drawn
-// inside the body's own 160% line instead of on a taller one: `measureSize:`
-// sizes the input from the attributed string alone, so a per-line height from
-// the layout manager would be drawn but never measured.
-static const CGFloat kChipHeight = 24;
-static const CGFloat kPaddingLeft = 8;
-static const CGFloat kPaddingRight = 5;
-static const CGFloat kDeleteGap = 8;
-static const CGFloat kDeleteSize = 16;
-static const CGFloat kDeleteGlyphSpan = 6;
-static const CGFloat kDeleteGlyphStroke = 1.5;
-/** A chip beside plain text keeps this much more room on that side. */
+// The chip the app's post detail draws (openstory-app HashtagChip / web's
+// rich-text-view): 14pt medium text in a 26pt pill, 8pt either side, on a 30pt
+// line, 4pt more room beside plain text.
+static const CGFloat kChipHeight = 26;
+static const CGFloat kPadding = 8;
 static const CGFloat kTextGap = 4;
-/** Right part of the chip that counts as the delete button, as on web. */
-static const CGFloat kDeleteHitWidth =
-    kPaddingRight + kDeleteSize + kDeleteGap / 2;
+static const CGFloat kChipLineHeight = 30;
+/** Measured on the sim: chip text sat 1pt under the pill's centre. */
+static const CGFloat kPillOffsetY = 1;
+static const CGFloat kChipFontScale = 14.0 / 16.0;
+static NSString *const kChipFontName = @"Pretendard-Medium";
 static const NSUInteger kMaxTagLength = 100;
 
 static NSString *const kRangeKey = @"range";
@@ -41,12 +43,37 @@ static UIColor *ChipTextColor(void) {
                           blue:0x61 / 255.0
                          alpha:1];
 }
-static UIColor *DeleteBackgroundColor(void) {
-  return [UIColor colorWithRed:0xCC / 255.0
-                         green:0xD1 / 255.0
-                          blue:0xE1 / 255.0
-                         alpha:1];
+
+@implementation HashtagChipLayoutDelegate
+
+- (BOOL)layoutManager:(NSLayoutManager *)layoutManager
+    shouldSetLineFragmentRect:(inout CGRect *)lineFragmentRect
+         lineFragmentUsedRect:(inout CGRect *)lineFragmentUsedRect
+               baselineOffset:(inout CGFloat *)baselineOffset
+              inTextContainer:(NSTextContainer *)textContainer
+                forGlyphRange:(NSRange)glyphRange {
+  EnrichedTextInputView *input = self.input;
+  NSTextStorage *storage = layoutManager.textStorage;
+  if (input == nil || !input->hashtagChipsEnabled || glyphRange.length == 0) {
+    return NO;
+  }
+  NSUInteger index =
+      [layoutManager characterIndexForGlyphAtIndex:glyphRange.location];
+  if (index >= storage.length ||
+      [storage.string characterAtIndex:index] != '#' ||
+      [storage attribute:HashtagChipTextAttributeName
+                 atIndex:index
+          effectiveRange:NULL] == nil) {
+    return NO;
+  }
+  // The chip's paragraph carries a matching tail indent, so the moved line
+  // still ends inside the container.
+  lineFragmentRect->origin.x += kPadding;
+  lineFragmentUsedRect->origin.x += kPadding;
+  return YES;
 }
+
+@end
 
 @implementation HashtagChipUtils
 
@@ -124,8 +151,8 @@ static UIColor *DeleteBackgroundColor(void) {
     [tokens addObject:[NSValue valueWithRange:token]];
   }
 
-  // Which sides have plain text on the same line, the way web decides its 4px
-  // text gap: a neighbouring chip or the line's edge does not count.
+  // Which sides have plain text on the same line, as the detail decides its
+  // 4pt text gap: a neighbouring chip or the line's edge does not count.
   NSMutableArray<NSDictionary *> *chips = [NSMutableArray array];
   for (NSUInteger i = 0; i < tokens.count; i++) {
     NSRange token = tokens[i].rangeValue;
@@ -160,13 +187,70 @@ static UIColor *DeleteBackgroundColor(void) {
   return chips;
 }
 
-+ (void)removeChipTextMarkerIn:(NSTextStorage *)storage {
-  [storage removeAttribute:HashtagChipTextAttributeName
-                     range:NSMakeRange(0, storage.length)];
+#pragma mark - Saving and restoring what a chip changes
+
+/** Saves `key`'s runs in `range` under `marker` (NSNull for none) unless saved
+ * already. */
++ (void)save:(NSAttributedStringKey)key
+       under:(NSAttributedStringKey)marker
+     inRange:(NSRange)range
+          in:(NSTextStorage *)storage {
+  NSMutableArray<NSArray *> *runs = [NSMutableArray array];
+  [storage enumerateAttribute:key
+                      inRange:range
+                      options:0
+                   usingBlock:^(id value, NSRange run, BOOL *stop) {
+                     [runs addObject:@[
+                       [NSValue valueWithRange:run], value ?: [NSNull null]
+                     ]];
+                   }];
+  for (NSArray *run in runs) {
+    NSRange runRange = [(NSValue *)run[0] rangeValue];
+    if ([storage attribute:marker
+                   atIndex:runRange.location
+            effectiveRange:NULL] == nil) {
+      [storage addAttribute:marker value:run[1] range:runRange];
+    }
+  }
 }
 
-+ (void)removeChipKernIn:(NSTextStorage *)storage {
+/** Puts back what `marker` saved for `key`, and drops the marker. */
++ (void)restore:(NSAttributedStringKey)key
+           from:(NSAttributedStringKey)marker
+             in:(NSTextStorage *)storage {
+  NSMutableArray<NSArray *> *runs = [NSMutableArray array];
+  [storage
+      enumerateAttribute:marker
+                 inRange:NSMakeRange(0, storage.length)
+                 options:0
+              usingBlock:^(id value, NSRange run, BOOL *stop) {
+                if (value != nil) {
+                  [runs addObject:@[ [NSValue valueWithRange:run], value ]];
+                }
+              }];
+  for (NSArray *run in runs) {
+    NSRange range = [(NSValue *)run[0] rangeValue];
+    if (run[1] == [NSNull null]) {
+      [storage removeAttribute:key range:range];
+    } else {
+      [storage addAttribute:key value:run[1] range:range];
+    }
+    [storage removeAttribute:marker range:range];
+  }
+}
+
++ (void)removeAllChipAttributesIn:(NSTextStorage *)storage {
+  [self restore:NSFontAttributeName from:kOriginalFontKey in:storage];
+  [self restore:NSParagraphStyleAttributeName
+           from:kOriginalParagraphStyleKey
+             in:storage];
+  [self restore:NSBaselineOffsetAttributeName
+           from:kOriginalBaselineKey
+             in:storage];
+
   NSRange whole = NSMakeRange(0, storage.length);
+  [storage removeAttribute:HashtagChipTextAttributeName range:whole];
+  // Only our kern: ZeroWidthSpaceUtils puts its own on zero-width spaces.
   NSMutableArray<NSValue *> *kerned = [NSMutableArray array];
   [storage enumerateAttribute:HashtagChipKernAttributeName
                       inRange:whole
@@ -183,6 +267,44 @@ static UIColor *DeleteBackgroundColor(void) {
   }
 }
 
+/** New text typed next to a chip must not pick up what the chip set. */
++ (void)cleanTypingAttributes:(UITextView *)textView {
+  NSMutableDictionary *typing = [textView.typingAttributes mutableCopy];
+  BOOL changed = NO;
+  NSArray *pairs = @[
+    @[ kOriginalFontKey, NSFontAttributeName ],
+    @[ kOriginalParagraphStyleKey, NSParagraphStyleAttributeName ],
+    @[ kOriginalBaselineKey, NSBaselineOffsetAttributeName ],
+  ];
+  for (NSArray *pair in pairs) {
+    id original = typing[pair[0]];
+    if (original == nil) {
+      continue;
+    }
+    if (original == [NSNull null]) {
+      [typing removeObjectForKey:pair[1]];
+    } else {
+      typing[pair[1]] = original;
+    }
+    [typing removeObjectForKey:pair[0]];
+    changed = YES;
+  }
+  if (typing[HashtagChipKernAttributeName] != nil) {
+    [typing removeObjectForKey:NSKernAttributeName];
+    [typing removeObjectForKey:HashtagChipKernAttributeName];
+    changed = YES;
+  }
+  if (typing[HashtagChipTextAttributeName] != nil) {
+    [typing removeObjectForKey:HashtagChipTextAttributeName];
+    changed = YES;
+  }
+  if (changed) {
+    textView.typingAttributes = typing;
+  }
+}
+
+#pragma mark - Applying
+
 + (void)addKern:(CGFloat)kern
         atIndex:(NSUInteger)index
              in:(NSTextStorage *)storage {
@@ -191,19 +313,92 @@ static UIColor *DeleteBackgroundColor(void) {
   [storage addAttribute:HashtagChipKernAttributeName value:@(YES) range:range];
 }
 
-+ (void)stripChipKernFromTypingAttributes:(UITextView *)textView {
-  NSDictionary *current = textView.typingAttributes;
-  if (current[HashtagChipKernAttributeName] == nil &&
-      current[HashtagChipTextAttributeName] == nil) {
-    return;
+/** Chip text in the chip font. The parser serializes styles' meta keys, not
+ * fonts. */
++ (void)applyChipFontIn:(NSTextStorage *)storage range:(NSRange)token {
+  [self save:NSFontAttributeName
+        under:kOriginalFontKey
+      inRange:token
+           in:storage];
+  NSMutableArray<NSArray *> *runs = [NSMutableArray array];
+  [storage
+      enumerateAttribute:kOriginalFontKey
+                 inRange:token
+                 options:0
+              usingBlock:^(id value, NSRange range, BOOL *stop) {
+                if ([value isKindOfClass:[UIFont class]]) {
+                  [runs addObject:@[ [NSValue valueWithRange:range], value ]];
+                }
+              }];
+  for (NSArray *run in runs) {
+    CGFloat size = ((UIFont *)run[1]).pointSize * kChipFontScale;
+    UIFont *chipFont = [UIFont fontWithName:kChipFontName size:size]
+                           ?: [UIFont systemFontOfSize:size
+                                                weight:UIFontWeightMedium];
+    [storage addAttribute:NSFontAttributeName
+                    value:chipFont
+                    range:[(NSValue *)run[0] rangeValue]];
   }
-  NSMutableDictionary *typing = [current mutableCopy];
-  if (typing[HashtagChipKernAttributeName] != nil) {
-    [typing removeObjectForKey:NSKernAttributeName];
-    [typing removeObjectForKey:HashtagChipKernAttributeName];
+}
+
+/**
+ * A line holding a chip is 30pt, its text centred, as in the detail. The input
+ * only sets a minimum line height, which leaves the text at the bottom of the
+ * box, so the paragraph's text is lifted to the middle.
+ */
++ (void)applyChipLineIn:(NSTextStorage *)storage
+              paragraph:(NSRange)paragraph
+                  input:(EnrichedTextInputView *)input {
+  EnrichedConfig *config = input->config;
+  CGFloat primary = [config primaryLineHeight];
+  CGFloat scaled = [config scaledPrimaryLineHeight];
+  CGFloat scale = primary > 0 ? scaled / primary : 1;
+  CGFloat chipLine = kChipLineHeight * scale;
+
+  [self save:NSParagraphStyleAttributeName
+        under:kOriginalParagraphStyleKey
+      inRange:paragraph
+           in:storage];
+  [self save:NSBaselineOffsetAttributeName
+        under:kOriginalBaselineKey
+      inRange:paragraph
+           in:storage];
+
+  NSMutableArray<NSArray *> *styles = [NSMutableArray array];
+  [storage
+      enumerateAttribute:kOriginalParagraphStyleKey
+                 inRange:paragraph
+                 options:0
+              usingBlock:^(id value, NSRange range, BOOL *stop) {
+                if (value != nil) {
+                  [styles addObject:@[ [NSValue valueWithRange:range], value ]];
+                }
+              }];
+  for (NSArray *entry in styles) {
+    NSParagraphStyle *original =
+        entry[1] == [NSNull null] ? nil : (NSParagraphStyle *)entry[1];
+    NSMutableParagraphStyle *style = original != nil
+                                         ? [original mutableCopy]
+                                         : [NSMutableParagraphStyle new];
+    style.minimumLineHeight = MAX(style.minimumLineHeight, chipLine);
+    // Room for a line that starts with a chip to move right by the chip's
+    // padding (HashtagChipLayoutDelegate). Wrapping is measured with it.
+    style.tailIndent -= kPadding;
+    [storage addAttribute:NSParagraphStyleAttributeName
+                    value:style
+                    range:[(NSValue *)entry[0] rangeValue]];
   }
-  [typing removeObjectForKey:HashtagChipTextAttributeName];
-  textView.typingAttributes = typing;
+
+  // The input's lines keep their text at the bottom; centring it in the chip
+  // line means lifting it by half the room the glyphs leave.
+  UIFont *body = [config primaryFont];
+  CGFloat glyphBox = body != nil ? body.ascender - body.descender : 0;
+  CGFloat lift = (chipLine - glyphBox) / 2;
+  if (glyphBox > 0 && lift > 0) {
+    [storage addAttribute:NSBaselineOffsetAttributeName
+                    value:@(lift)
+                    range:paragraph];
+  }
 }
 
 + (void)refreshInInput:(EnrichedTextInputView *)input {
@@ -223,36 +418,41 @@ static UIColor *DeleteBackgroundColor(void) {
   NSCharacterSet *newlines = [NSCharacterSet newlineCharacterSet];
 
   [storage beginEditing];
-  [self removeChipKernIn:storage];
-  [self removeChipTextMarkerIn:storage];
+  [self removeAllChipAttributesIn:storage];
+
+  NSMutableSet<NSValue *> *paragraphs = [NSMutableSet set];
   for (NSDictionary *chip in chips) {
     NSRange token = [(NSValue *)chip[kRangeKey] rangeValue];
     BOOL textBefore = [chip[kTextBeforeKey] boolValue];
     BOOL textAfter = [chip[kTextAfterKey] boolValue];
-    // Kern widens the character it sits on, so room before the chip goes on the
-    // whitespace in front of it. At a line start there is none; the pill's left
-    // padding then reaches past the text's edge (clipsToBounds is off).
+    // Kern widens the character it sits on, so the room before the chip goes on
+    // the whitespace in front of it. A line that starts with the chip is moved
+    // instead (HashtagChipLayoutDelegate).
     if (token.location > 0 &&
         ![newlines
             characterIsMember:[text characterAtIndex:token.location - 1]]) {
-      [self addKern:kPaddingLeft + (textBefore ? kTextGap : 0)
+      [self addKern:kPadding + (textBefore ? kTextGap : 0)
             atIndex:token.location - 1
                  in:storage];
     }
-    [self addKern:kPaddingRight + kDeleteGap + kDeleteSize +
-                  (textAfter ? kTextGap : 0)
+    [self addKern:kPadding + (textAfter ? kTextGap : 0)
           atIndex:NSMaxRange(token) - 1
                in:storage];
     // A marker the parser does not know, so the colour stays render-only: the
     // layout manager paints marked glyphs in the chip colour
-    // (LayoutManagerExtension). A real foreground colour would be rewritten by
-    // dirty-range styling and carried into typing.
+    // (LayoutManagerExtension).
     [storage addAttribute:HashtagChipTextAttributeName
                     value:@(YES)
                     range:token];
+    [self applyChipFontIn:storage range:token];
+    [paragraphs
+        addObject:[NSValue valueWithRange:[text paragraphRangeForRange:token]]];
+  }
+  for (NSValue *paragraph in paragraphs) {
+    [self applyChipLineIn:storage paragraph:paragraph.rangeValue input:input];
   }
   [storage endEditing];
-  [self stripChipKernFromTypingAttributes:textView];
+  [self cleanTypingAttributes:textView];
 
   input->hashtagChips = chips;
   [textView.layoutManager
@@ -263,36 +463,34 @@ static UIColor *DeleteBackgroundColor(void) {
   UITextView *textView = input->textView;
   NSTextStorage *storage = textView.textStorage;
   [storage beginEditing];
-  [self removeChipKernIn:storage];
-  [self removeChipTextMarkerIn:storage];
+  [self removeAllChipAttributesIn:storage];
   [storage endEditing];
-  [self stripChipKernFromTypingAttributes:textView];
+  [self cleanTypingAttributes:textView];
   input->hashtagChips = @[];
 }
 
-/**
- * Calls `block` with each pill rect of each chip, in text container
- * coordinates. A token too long for one line wraps, so a chip can have several
- * rects; only its last one carries the delete button.
- */
-+ (void)enumeratePillsInInput:(EnrichedTextInputView *)input
-                layoutManager:(NSLayoutManager *)layoutManager
-                      inRange:(NSRange)charRange
-                   usingBlock:(void (^)(NSRange token, CGRect pill,
-                                        BOOL isLast))block {
-  NSTextStorage *storage = input->textView.textStorage;
+#pragma mark - Drawing
+
++ (void)drawChipsInInput:(EnrichedTextInputView *)input
+           layoutManager:(NSLayoutManager *)layoutManager
+                  origin:(CGPoint)origin
+        visibleCharRange:(NSRange)visibleCharRange {
+  if (!input->hashtagChipsEnabled || input->hashtagChips.count == 0) {
+    return;
+  }
+  NSUInteger length = input->textView.textStorage.length;
+  [ChipBackgroundColor() setFill];
+
   for (NSDictionary *chip in input->hashtagChips) {
     NSRange token = [(NSValue *)chip[kRangeKey] rangeValue];
-    if (NSMaxRange(token) > storage.length ||
-        NSIntersectionRange(token, charRange).length == 0) {
+    if (NSMaxRange(token) > length ||
+        NSIntersectionRange(token, visibleCharRange).length == 0) {
       continue;
     }
     BOOL textAfter = [chip[kTextAfterKey] boolValue];
-    UIFont *font = [storage attribute:NSFontAttributeName
-                              atIndex:token.location
-                       effectiveRange:NULL];
     NSRange glyphs = [layoutManager glyphRangeForCharacterRange:token
                                            actualCharacterRange:NULL];
+    // A token too long for one line wraps, so a chip can have several pieces.
     [layoutManager
         enumerateLineFragmentsForGlyphRange:glyphs
                                  usingBlock:^(CGRect rect, CGRect usedRect,
@@ -308,118 +506,30 @@ static UIColor *DeleteBackgroundColor(void) {
                                    BOOL isLast =
                                        NSMaxRange(part) == NSMaxRange(glyphs);
                                    // The bounds include the kern on the token's
-                                   // last character: right padding, delete
-                                   // button and gap.
+                                   // last character: right padding and gap.
                                    CGRect bounds = [layoutManager
                                        boundingRectForGlyphRange:part
                                                  inTextContainer:container];
                                    CGFloat left = CGRectGetMinX(bounds) -
-                                                  (isFirst ? kPaddingLeft : 0);
+                                                  (isFirst ? kPadding : 0);
                                    CGFloat right =
                                        CGRectGetMaxX(bounds) -
                                        (isLast && textAfter ? kTextGap : 0);
-                                   CGPoint glyphOrigin = [layoutManager
-                                       locationForGlyphAtIndex:part.location];
-                                   CGFloat baseline =
-                                       rect.origin.y + glyphOrigin.y;
-                                   CGFloat center =
-                                       font != nil
-                                           ? baseline - (font.ascender +
-                                                         font.descender) /
-                                                            2
-                                           : CGRectGetMidY(rect);
-                                   block(token,
-                                         CGRectMake(left,
-                                                    center - kChipHeight / 2,
-                                                    right - left, kChipHeight),
-                                         isLast);
+                                   // Centred in its 30pt line like the text,
+                                   // nudged down so the smaller chip glyphs
+                                   // (sharing the body's baseline) sit centred
+                                   // in it as they do in the detail.
+                                   CGRect pill = CGRectMake(
+                                       left + origin.x,
+                                       CGRectGetMidY(rect) - kChipHeight / 2 +
+                                           kPillOffsetY + origin.y,
+                                       right - left, kChipHeight);
+                                   [[UIBezierPath
+                                       bezierPathWithRoundedRect:pill
+                                                    cornerRadius:kChipHeight /
+                                                                 2] fill];
                                  }];
   }
-}
-
-+ (void)drawChipsInInput:(EnrichedTextInputView *)input
-           layoutManager:(NSLayoutManager *)layoutManager
-                  origin:(CGPoint)origin
-        visibleCharRange:(NSRange)visibleCharRange {
-  if (!input->hashtagChipsEnabled || input->hashtagChips.count == 0) {
-    return;
-  }
-  [self enumeratePillsInInput:input
-                layoutManager:layoutManager
-                      inRange:visibleCharRange
-                   usingBlock:^(NSRange token, CGRect pill, BOOL isLast) {
-                     CGRect rect = CGRectOffset(pill, origin.x, origin.y);
-                     [ChipBackgroundColor() setFill];
-                     [[UIBezierPath
-                         bezierPathWithRoundedRect:rect
-                                      cornerRadius:rect.size.height / 2] fill];
-                     if (!isLast) {
-                       return;
-                     }
-                     CGRect circle = CGRectMake(
-                         CGRectGetMaxX(rect) - kPaddingRight - kDeleteSize,
-                         CGRectGetMidY(rect) - kDeleteSize / 2, kDeleteSize,
-                         kDeleteSize);
-                     [DeleteBackgroundColor() setFill];
-                     [[UIBezierPath bezierPathWithOvalInRect:circle] fill];
-
-                     CGFloat half = kDeleteGlyphSpan / 2;
-                     CGPoint c = CGPointMake(CGRectGetMidX(circle),
-                                             CGRectGetMidY(circle));
-                     UIBezierPath *cross = [UIBezierPath bezierPath];
-                     [cross moveToPoint:CGPointMake(c.x - half, c.y - half)];
-                     [cross addLineToPoint:CGPointMake(c.x + half, c.y + half)];
-                     [cross moveToPoint:CGPointMake(c.x + half, c.y - half)];
-                     [cross addLineToPoint:CGPointMake(c.x - half, c.y + half)];
-                     cross.lineWidth = kDeleteGlyphStroke;
-                     cross.lineCapStyle = kCGLineCapRound;
-                     [ChipTextColor() setStroke];
-                     [cross stroke];
-                   }];
-}
-
-+ (NSRange)deleteRangeAtPoint:(CGPoint)point
-                      inInput:(EnrichedTextInputView *)input {
-  __block NSRange hit = NSMakeRange(NSNotFound, 0);
-  if (!input->hashtagChipsEnabled || input->hashtagChips.count == 0) {
-    return hit;
-  }
-  UITextView *textView = input->textView;
-  CGPoint inContainer = CGPointMake(point.x - textView.textContainerInset.left,
-                                    point.y - textView.textContainerInset.top);
-  NSString *text = textView.textStorage.string;
-  [self enumeratePillsInInput:input
-                layoutManager:textView.layoutManager
-                      inRange:NSMakeRange(0, text.length)
-                   usingBlock:^(NSRange token, CGRect pill, BOOL isLast) {
-                     if (!isLast || hit.location != NSNotFound) {
-                       return;
-                     }
-                     CGRect target =
-                         CGRectMake(CGRectGetMaxX(pill) - kDeleteHitWidth,
-                                    CGRectGetMinY(pill), kDeleteHitWidth,
-                                    CGRectGetHeight(pill));
-                     if (!CGRectContainsPoint(target, inContainer)) {
-                       return;
-                     }
-                     hit = token;
-                   }];
-  if (hit.location == NSNotFound) {
-    return hit;
-  }
-
-  // The token and one space with it, the one after first, so the text around
-  // it does not end up doubly spaced (web does the same).
-  NSCharacterSet *spaces = [NSCharacterSet whitespaceCharacterSet];
-  if (NSMaxRange(hit) < text.length &&
-      [spaces characterIsMember:[text characterAtIndex:NSMaxRange(hit)]]) {
-    return NSMakeRange(hit.location, hit.length + 1);
-  }
-  if (hit.location > 0 &&
-      [spaces characterIsMember:[text characterAtIndex:hit.location - 1]]) {
-    return NSMakeRange(hit.location - 1, hit.length + 1);
-  }
-  return hit;
 }
 
 @end
