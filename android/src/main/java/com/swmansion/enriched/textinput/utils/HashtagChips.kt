@@ -12,6 +12,7 @@ import android.text.style.ForegroundColorSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
+import android.text.style.UpdateLayout
 import com.facebook.react.views.text.ReactTypefaceUtils.applyStyles
 import com.facebook.react.views.text.ReactTypefaceUtils.parseFontStyle
 import com.facebook.react.views.text.ReactTypefaceUtils.parseFontWeight
@@ -106,11 +107,16 @@ class HashtagChips(
    * A line holding a chip is 30dp with its text centred, as in the post detail.
    * Absolute, so it does not matter whether the input's own line height span
    * runs before or after it: that one only grows lines shorter than its height.
+   *
+   * `UpdateLayout` makes the editor's DynamicLayout re-lay out the paragraph when
+   * this span comes or goes. Without it only a text edit did: a caret move that
+   * re-chipped a token dropped every chip line back to the body height.
    */
   class LineSpan(
     private val heightPx: Int,
     private val paint: Paint,
-  ) : LineHeightSpan {
+  ) : LineHeightSpan,
+    UpdateLayout {
     override fun chooseHeight(
       text: CharSequence,
       start: Int,
@@ -139,6 +145,7 @@ class HashtagChips(
   private val chipHeight = CHIP_HEIGHT * density
   private val padding = PADDING * density
   private val textGap = TEXT_GAP * density
+  private val pillOffsetY = PILL_OFFSET_Y * density
 
   private val fillPaint =
     Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -164,8 +171,18 @@ class HashtagChips(
     if (next == chips && hasSpansFor(text, next)) return
 
     removeSpans(text)
+    // Line heights first, so the re-layouts the other spans trigger already see them.
     val lineHeight = pixelFromSpOrDp(CHIP_LINE_HEIGHT, view.allowFontScaling).toInt()
-    val paragraphs = mutableSetOf<Pair<Int, Int>>()
+    val paragraphs =
+      next
+        .map { chip ->
+          val start = text.lastIndexOf('\n', chip.start - 1) + 1
+          val end = text.indexOf('\n', chip.end).let { if (it == -1) text.length else it }
+          start to end
+        }.toSet()
+    for ((start, end) in paragraphs) {
+      text.setSpan(LineSpan(lineHeight, view.paint), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
     for (chip in next) {
       val left = padding + if (chip.textBefore) textGap else 0f
       val right = padding + if (chip.textAfter) textGap else 0f
@@ -181,12 +198,6 @@ class HashtagChips(
       // Over the whole token, edges included: a ReplacementSpan is measured and
       // drawn with the metric spans of its range already applied.
       text.setSpan(FontSpan(chipTypeface), chip.start, chip.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
-      val paragraphStart = text.lastIndexOf('\n', chip.start - 1) + 1
-      val paragraphEnd = text.indexOf('\n', chip.end).let { if (it == -1) text.length else it }
-      paragraphs += paragraphStart to paragraphEnd
-    }
-    for ((start, end) in paragraphs) {
-      text.setSpan(LineSpan(lineHeight, view.paint), start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
     chips = next
     // The edge spans change line widths, so wrapping and height can change with them.
@@ -237,9 +248,10 @@ class HashtagChips(
       }
     val right = end - if (chip.textAfter) textGap else 0f
 
-    // The text is centred in its 30dp line (LineSpan), so the pill is too: 2dp
-    // clear above and below.
-    val top = (layout.getLineTop(line) + layout.getLineBottom(line) - chipHeight) / 2
+    // Centred in its 30dp line like the text (LineSpan), nudged down so the
+    // smaller chip glyphs sit centred in it as they do in the detail (measured
+    // 1dp low on the emulator, as on iOS).
+    val top = (layout.getLineTop(line) + layout.getLineBottom(line) - chipHeight) / 2 + pillOffsetY
     out.set(left, top, right, top + chipHeight)
     return true
   }
@@ -287,14 +299,13 @@ class HashtagChips(
   }
 
   private fun removeSpans(text: Editable) {
+    for (span in text.getSpans(0, text.length, LineSpan::class.java)) text.removeSpan(span)
     for (span in text.getSpans(0, text.length, EdgeSpan::class.java)) text.removeSpan(span)
     for (span in text.getSpans(0, text.length, ColorSpan::class.java)) text.removeSpan(span)
     for (span in text.getSpans(0, text.length, FontSpan::class.java)) text.removeSpan(span)
-    for (span in text.getSpans(0, text.length, LineSpan::class.java)) text.removeSpan(span)
   }
 
   companion object {
-
     // Android's regex is ICU, so `\s` already covers Unicode whitespace (no-break and
     // ideographic spaces) as on iOS and web. `UNICODE_CHARACTER_CLASS` is not supported
     // there and throws: in this initializer it crashed every input on mount.
@@ -306,6 +317,7 @@ class HashtagChips(
     private const val PADDING = 8f
     private const val TEXT_GAP = 4f
     private const val CHIP_LINE_HEIGHT = 30f
+    private const val PILL_OFFSET_Y = 1f
     private const val FONT_SCALE = 14f / 16f
     private const val FONT_FAMILY = "Pretendard-Medium"
 
