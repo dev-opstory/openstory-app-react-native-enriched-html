@@ -7,6 +7,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.Editable
 import android.text.Spannable
+import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.ForegroundColorSpan
 import android.text.style.LineHeightSpan
@@ -108,6 +109,10 @@ class HashtagChips(
    * Absolute, so it does not matter whether the input's own line height span
    * runs before or after it: that one only grows lines shorter than its height.
    *
+   * Set over the whole paragraph, but decided per line, as on web, where the
+   * chip's own line-height sets the line box: a wrapped line of the paragraph
+   * with no chip on it keeps the body's line height.
+   *
    * `UpdateLayout` makes the editor's DynamicLayout re-lay out the paragraph when
    * this span comes or goes. Without it only a text edit did: a caret move that
    * re-chipped a token dropped every chip line back to the body height.
@@ -125,6 +130,7 @@ class HashtagChips(
       v: Int,
       fm: Paint.FontMetricsInt,
     ) {
+      if (!holdsChip(text, start, end)) return
       val natural = paint.fontMetricsInt
       val extra = heightPx - (natural.descent - natural.ascent)
       if (extra <= 0) return
@@ -132,6 +138,19 @@ class HashtagChips(
       fm.descent = natural.descent + (extra - extra / 2)
       fm.top = minOf(fm.top, fm.ascent)
       fm.bottom = maxOf(fm.bottom, fm.descent)
+    }
+
+    /** Every chip starts with an edge span on its `#`. */
+    private fun holdsChip(
+      text: CharSequence,
+      start: Int,
+      end: Int,
+    ): Boolean {
+      if (text !is Spanned) return false
+      return text.getSpans(start, end, EdgeSpan::class.java).any {
+        val spanStart = text.getSpanStart(it)
+        spanStart in start until end
+      }
     }
   }
 

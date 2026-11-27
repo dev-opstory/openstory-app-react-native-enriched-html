@@ -57,19 +57,37 @@ static UIColor *ChipTextColor(void) {
   if (input == nil || !input->hashtagChipsEnabled || glyphRange.length == 0) {
     return NO;
   }
-  NSUInteger index =
-      [layoutManager characterIndexForGlyphAtIndex:glyphRange.location];
-  if (index >= storage.length ||
-      [storage.string characterAtIndex:index] != '#' ||
-      [storage attribute:HashtagChipTextAttributeName
-                 atIndex:index
-          effectiveRange:NULL] == nil) {
+  NSRange chars = [layoutManager characterRangeForGlyphRange:glyphRange
+                                            actualGlyphRange:NULL];
+  if (![HashtagChipUtils hasChipIn:storage range:chars]) {
     return NO;
   }
-  // The chip's paragraph carries a matching tail indent, so the moved line
-  // still ends inside the container.
-  lineFragmentRect->origin.x += kPadding;
-  lineFragmentUsedRect->origin.x += kPadding;
+
+  // Only a line that holds a chip is 30pt, its text centred, as on web, where
+  // the chip's own line-height sets the line box. The other lines of the same
+  // paragraph (wrapped or not) keep the body's line height.
+  CGFloat chipLine = [HashtagChipUtils chipLineHeightIn:input];
+  if (chipLine > lineFragmentRect->size.height) {
+    lineFragmentRect->size.height = chipLine;
+    lineFragmentUsedRect->size.height =
+        MAX(lineFragmentUsedRect->size.height, chipLine);
+    UIFont *body = [input->config primaryFont];
+    CGFloat glyphBox = body != nil ? body.ascender - body.descender : 0;
+    if (glyphBox > 0) {
+      *baselineOffset = (chipLine - glyphBox) / 2 + body.ascender;
+    }
+  }
+
+  NSUInteger index = chars.location;
+  if ([storage.string characterAtIndex:index] == '#' &&
+      [storage attribute:HashtagChipTextAttributeName
+                 atIndex:index
+          effectiveRange:NULL] != nil) {
+    // The chip's paragraph carries a matching tail indent, so the moved line
+    // still ends inside the container.
+    lineFragmentRect->origin.x += kPadding;
+    lineFragmentUsedRect->origin.x += kPadding;
+  }
   return YES;
 }
 
@@ -79,6 +97,68 @@ static UIColor *ChipTextColor(void) {
 
 + (UIColor *)chipTextColor {
   return ChipTextColor();
+}
+
++ (CGFloat)chipLineHeightIn:(EnrichedTextInputView *)input {
+  EnrichedConfig *config = input->config;
+  CGFloat primary = [config primaryLineHeight];
+  CGFloat scaled = [config scaledPrimaryLineHeight];
+  return kChipLineHeight * (primary > 0 ? scaled / primary : 1);
+}
+
++ (BOOL)hasChipIn:(NSAttributedString *)text range:(NSRange)range {
+  if (range.length == 0 || NSMaxRange(range) > text.length) {
+    return NO;
+  }
+  __block BOOL found = NO;
+  [text
+      enumerateAttribute:HashtagChipTextAttributeName
+                 inRange:range
+                 options:
+                     NSAttributedStringEnumerationLongestEffectiveRangeNotRequired
+              usingBlock:^(id value, NSRange r, BOOL *stop) {
+                if (value != nil) {
+                  found = YES;
+                  *stop = YES;
+                }
+              }];
+  return found;
+}
+
++ (CGFloat)extraHeightFor:(NSAttributedString *)text
+                    width:(CGFloat)width
+                    input:(EnrichedTextInputView *)input {
+  if (!input->hashtagChipsEnabled || input->hashtagChips.count == 0) {
+    return 0;
+  }
+  // Lays the text out as `boundingRectWithSize:` does (no delegate) and adds
+  // what HashtagChipLayoutDelegate adds to each line that holds a chip.
+  NSTextStorage *storage =
+      [[NSTextStorage alloc] initWithAttributedString:text];
+  NSLayoutManager *layoutManager = [NSLayoutManager new];
+  NSTextContainer *container =
+      [[NSTextContainer alloc] initWithSize:CGSizeMake(width, CGFLOAT_MAX)];
+  container.lineFragmentPadding = 0;
+  [layoutManager addTextContainer:container];
+  [storage addLayoutManager:layoutManager];
+  [layoutManager ensureLayoutForTextContainer:container];
+
+  CGFloat chipLine = [self chipLineHeightIn:input];
+  __block CGFloat extra = 0;
+  NSRange all = [layoutManager glyphRangeForTextContainer:container];
+  [layoutManager
+      enumerateLineFragmentsForGlyphRange:all
+                               usingBlock:^(CGRect rect, CGRect usedRect,
+                                            NSTextContainer *c,
+                                            NSRange lineGlyphs, BOOL *stop) {
+                                 NSRange chars = [layoutManager
+                                     characterRangeForGlyphRange:lineGlyphs
+                                                actualGlyphRange:NULL];
+                                 if ([self hasChipIn:storage range:chars]) {
+                                   extra += MAX(0, chipLine - rect.size.height);
+                                 }
+                               }];
+  return extra;
 }
 
 + (NSRegularExpression *)tokenRegex {
@@ -342,25 +422,16 @@ static UIColor *ChipTextColor(void) {
 }
 
 /**
- * A line holding a chip is 30pt, its text centred, as in the detail. The input
- * only sets a minimum line height, which leaves the text at the bottom of the
- * box, so the paragraph's text is lifted to the middle.
+ * Room for a line that starts with a chip to move right by the chip's padding.
+ * The 30pt height of a line holding a chip is set per line by
+ * HashtagChipLayoutDelegate, not here: a paragraph style would raise every
+ * line of the paragraph, wrapped text-only lines included.
  */
 + (void)applyChipLineIn:(NSTextStorage *)storage
               paragraph:(NSRange)paragraph
                   input:(EnrichedTextInputView *)input {
-  EnrichedConfig *config = input->config;
-  CGFloat primary = [config primaryLineHeight];
-  CGFloat scaled = [config scaledPrimaryLineHeight];
-  CGFloat scale = primary > 0 ? scaled / primary : 1;
-  CGFloat chipLine = kChipLineHeight * scale;
-
   [self save:NSParagraphStyleAttributeName
         under:kOriginalParagraphStyleKey
-      inRange:paragraph
-           in:storage];
-  [self save:NSBaselineOffsetAttributeName
-        under:kOriginalBaselineKey
       inRange:paragraph
            in:storage];
 
@@ -380,24 +451,12 @@ static UIColor *ChipTextColor(void) {
     NSMutableParagraphStyle *style = original != nil
                                          ? [original mutableCopy]
                                          : [NSMutableParagraphStyle new];
-    style.minimumLineHeight = MAX(style.minimumLineHeight, chipLine);
     // Room for a line that starts with a chip to move right by the chip's
     // padding (HashtagChipLayoutDelegate). Wrapping is measured with it.
     style.tailIndent -= kPadding;
     [storage addAttribute:NSParagraphStyleAttributeName
                     value:style
                     range:[(NSValue *)entry[0] rangeValue]];
-  }
-
-  // The input's lines keep their text at the bottom; centring it in the chip
-  // line means lifting it by half the room the glyphs leave.
-  UIFont *body = [config primaryFont];
-  CGFloat glyphBox = body != nil ? body.ascender - body.descender : 0;
-  CGFloat lift = (chipLine - glyphBox) / 2;
-  if (glyphBox > 0 && lift > 0) {
-    [storage addAttribute:NSBaselineOffsetAttributeName
-                    value:@(lift)
-                    range:paragraph];
   }
 }
 

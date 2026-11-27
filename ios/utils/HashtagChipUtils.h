@@ -43,6 +43,20 @@ extern NSAttributedStringKey const HashtagChipTextAttributeName;
 
 + (UIColor *)chipTextColor;
 
+/** Height of a line that holds a chip (30pt, scaled with the font). */
++ (CGFloat)chipLineHeightIn:(EnrichedTextInputView *)input;
+
+/** Whether any chip character lies in `range`. */
++ (BOOL)hasChipIn:(NSAttributedString *)text range:(NSRange)range;
+
+/**
+ * What the chip lines add to `text`'s height at `width` over a plain layout,
+ * for `measureSize:`, which measures without the layout manager delegate.
+ */
++ (CGFloat)extraHeightFor:(NSAttributedString *)text
+                    width:(CGFloat)width
+                    input:(EnrichedTextInputView *)input;
+
 /** Recomputes the chips and their spacing. No-op while IME composition is
  * active. */
 + (void)refreshInInput:(EnrichedTextInputView *)input;

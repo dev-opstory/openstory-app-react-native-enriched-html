@@ -1005,7 +1005,11 @@ Class<RCTComponentViewProtocol> EnrichedTextInputViewCls(void) {
                                options:NSStringDrawingUsesLineFragmentOrigin |
                                        NSStringDrawingUsesFontLeading
                                context:nullptr];
-  CGFloat height = ceil(boundingBox.size.height);
+  // OpenStory: lines holding a hashtag chip are taller (HashtagChipUtils).
+  CGFloat height =
+      ceil(boundingBox.size.height + [HashtagChipUtils extraHeightFor:currentStr
+                                                                width:maxWidth
+                                                                input:self]);
 
   // An empty input shows the placeholder, and that wraps like any other text.
   // RN's own `RCTUITextView` returns MAX(text, placeholder) from
